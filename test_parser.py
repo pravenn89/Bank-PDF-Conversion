@@ -52,6 +52,29 @@ class TestIndianBankStatement(unittest.TestCase):
     def test_transaction_count(self):
         self.assertEqual(len(self.transactions), 19)
 
+class TestIndianBankCurrentStatement(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\798c510d-3f38-4457-8c71-0896ee2415ef\media__1784543027238.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "7728926762")
+        self.assertEqual(self.metadata.get("customer_id"), "IFSC: IDIB000N033")
+        self.assertEqual(self.metadata.get("account_type"), "CA-IND GROW PROFESSIONAL-INR")
+        self.assertEqual(self.metadata.get("holder_name"), "LORDAN INDUCTION KITCHEN EQUIPMENT LLP")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 18)
+
+    def test_first_transaction(self):
+        first_tx = self.transactions[0]
+        self.assertEqual(first_tx["txn_date"], "16/05/25")
+        self.assertEqual(first_tx["particulars"], "SMS_CHGS_MARCH-25_QT 00000000000098058 /SERVICE CHARGES")
+        self.assertEqual(first_tx["debit"], "3.00")
+        self.assertEqual(first_tx["balance"], "8138.20")
+
 class TestUnionBankStatement(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

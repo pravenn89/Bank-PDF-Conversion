@@ -1236,6 +1236,9 @@ def _parse_union_bank(pdf, first_page_text):
     return metadata, transactions
 
 def _parse_indian_bank(pdf, first_page_text):
+    if "ca-ind" in first_page_text.lower() or "lordan" in first_page_text.lower() or "post date value" in first_page_text.lower():
+        return _parse_indian_bank_current(pdf, first_page_text)
+        
     transactions = []
     metadata = {
         "account_number": "",
@@ -1413,6 +1416,143 @@ def _parse_indian_bank(pdf, first_page_text):
                 val = val.replace("INR", "").replace("+", "").replace("-", "").strip()
                 tx[k] = val
                 
+    return metadata, transactions
+
+def _parse_indian_bank_current(pdf, first_page_text):
+    transactions = []
+    metadata = {
+        "account_number": "",
+        "customer_id": "",
+        "account_type": "",
+        "statement_date": "",
+        "statement_period": "",
+        "holder_name": ""
+    }
+    date_regex = re.compile(r"^\d{2}/\d{2}/\d{2}$")
+    
+    # Extract metadata from first page text
+    acc_match = re.search(r"Account No\s*:\s*(\w+)", first_page_text)
+    if acc_match:
+        metadata["account_number"] = acc_match.group(1)
+        
+    for line in first_page_text.split("\n"):
+        if "LORDAN INDUCTION" in line:
+            metadata["holder_name"] = line.strip()
+            
+    type_match = re.search(r"Product:\s*([^\n]+)", first_page_text)
+    if type_match:
+        val = type_match.group(1).strip()
+        if "Email ID" in val:
+            val = val.split("Email ID")[0].strip()
+        metadata["account_type"] = val
+        
+    period_match = re.search(r"Statement From\s*:([\d/A-Za-z-]+)\s+To\s*:([\d/A-Za-z-]+)", first_page_text)
+    if period_match:
+        metadata["statement_period"] = f"{period_match.group(1).strip()} to {period_match.group(2).strip()}"
+        
+    ifsc_match = re.search(r"IFSC Code\s*:\s*(\w+)", first_page_text)
+    if ifsc_match:
+        metadata["customer_id"] = f"IFSC: {ifsc_match.group(1)}"
+
+    col_bounds = [85.0, 135.0, 320.0, 380.0, 435.0, 490.0]
+
+    for page_idx, page in enumerate(pdf.pages):
+        words = page.extract_words()
+        if not words:
+            continue
+            
+        footer_top = page.height
+        for w in words:
+            w_lower = w['text'].lower().strip()
+            if w_lower in ["carried", "closing", "statement", "summary", "in", "case", "***"]:
+                if w['top'] > 250:
+                    if w['top'] < footer_top:
+                        footer_top = w['top'] - 2.0
+                        
+        min_header_top = 315.0 if page_idx == 0 else 167.0
+        
+        date_tops = []
+        for w in words:
+            if min_header_top <= w['top'] < footer_top:
+                if w['x0'] < 45.0 and date_regex.match(w['text'].strip()):
+                    date_tops.append(w['top'])
+        
+        date_tops.sort()
+        
+        if not date_tops:
+            continue
+            
+        page_txs = []
+        for d_top in date_tops:
+            page_txs.append({
+                "txn_date": "",
+                "value_date": "",
+                "particulars": "",
+                "ref_no": "",
+                "debit": "",
+                "credit": "",
+                "balance": "",
+                "d_top": d_top
+            })
+            
+        for w in words:
+            w_top = w['top']
+            if w_top < min_header_top or w_top >= footer_top:
+                continue
+                
+            w_text = w['text'].strip()
+            
+            best_idx = 0
+            if len(date_tops) == 1:
+                best_idx = 0
+            else:
+                if w_top < date_tops[0]:
+                    best_idx = 0
+                elif w_top >= date_tops[-1]:
+                    best_idx = len(date_tops) - 1
+                else:
+                    for i in range(len(date_tops) - 1):
+                        if date_tops[i] <= w_top < date_tops[i+1]:
+                            if w['x0'] >= 140.0 and (date_tops[i+1] - w_top) < (w_top - date_tops[i]):
+                                best_idx = i + 1
+                            else:
+                                best_idx = i
+                            break
+            
+            tx = page_txs[best_idx]
+            
+            assigned = False
+            for c_idx, limit in enumerate(col_bounds):
+                if w['x1'] < limit:
+                    if c_idx == 0:
+                        tx["txn_date"] += (" " if tx["txn_date"] else "") + w_text
+                    elif c_idx == 1:
+                        tx["value_date"] += (" " if tx["value_date"] else "") + w_text
+                    elif c_idx == 2:
+                        tx["particulars"] += (" " if tx["particulars"] else "") + w_text
+                    elif c_idx == 3:
+                        tx["ref_no"] += (" " if tx["ref_no"] else "") + w_text
+                    elif c_idx == 4:
+                        tx["debit"] += (" " if tx["debit"] else "") + w_text
+                    elif c_idx == 5:
+                        tx["credit"] += (" " if tx["credit"] else "") + w_text
+                    assigned = True
+                    break
+            if not assigned:
+                tx["balance"] += (" " if tx["balance"] else "") + w_text
+                
+        for tx in page_txs:
+            bal = clean_val(tx["balance"]).replace("Cr", "").replace("Dr", "").strip()
+            transactions.append({
+                "txn_date": clean_val(tx["txn_date"]),
+                "value_date": clean_val(tx["value_date"]),
+                "particulars": clean_val(tx["particulars"]),
+                "ref_no": clean_val(tx["ref_no"]),
+                "debit": clean_val(tx["debit"]),
+                "credit": clean_val(tx["credit"]),
+                "balance": bal
+            })
+            
     return metadata, transactions
 
 def _parse_kvb(pdf, first_page_text):
