@@ -60,6 +60,7 @@ with st.sidebar:
     - Punjab National Bank (PNB)
     - Standard Chartered Bank (SCB)
     - State Bank of India (SBI)
+    - Bank of Baroda (BoB)
     - Axis Bank *(scanned check)*
     """)
     st.info("💡 **Scanned PDF check**: Axis and scanned SBI statements will trigger a scanned document warning.")
