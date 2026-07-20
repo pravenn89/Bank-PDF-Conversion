@@ -256,5 +256,47 @@ class TestBoBStatement(unittest.TestCase):
         self.assertEqual(first_tx["particulars"], "DIGITB-VADODAR")
         self.assertEqual(first_tx["balance"], "0")
 
+class TestICICIHakkemStatement(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\798c510d-3f38-4457-8c71-0896ee2415ef\media__1784554625073.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "606901183459")
+        self.assertEqual(self.metadata.get("holder_name"), "M SYED ABDUL HAKKEM")
+        self.assertEqual(self.metadata.get("statement_period"), "April 1, 2025 to March 31, 2026")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 2507)
+
+    def test_first_transaction(self):
+        first_tx = self.transactions[0]
+        self.assertEqual(first_tx["txn_date"], "01.04.2025")
+        self.assertEqual(first_tx["particulars"], "Q035606811@ybl UPI/Q035606811@ybl/Payment from Ph/YES BANK LIMITE/622838492116/IBLed4439b413fe4534ae0a d00e2afb8433/")
+        self.assertEqual(first_tx["debit"], "20.00")
+        self.assertEqual(first_tx["balance"], "4876.87")
+
+class TestICICIMultiPageStatement(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\798c510d-3f38-4457-8c71-0896ee2415ef\media__1784554809745.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "603301110156")
+        self.assertEqual(self.metadata.get("statement_period"), "January 30, 2025 - January 29, 2026")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 817)
+
+    def test_first_transaction(self):
+        first_tx = self.transactions[0]
+        self.assertEqual(first_tx["txn_date"], "30-01-2025")
+        self.assertEqual(first_tx["particulars"], "B/F NEFT-HDFCN52025013029279369-EXCEL HR")
+        self.assertEqual(first_tx["balance"], "10,008.83")
+
 if __name__ == '__main__':
     unittest.main()

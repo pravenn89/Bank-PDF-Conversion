@@ -459,6 +459,9 @@ def _parse_indusind(pdf, first_page_text):
     return metadata, transactions
 
 def _parse_icici(pdf, first_page_text):
+    if "s no." in first_page_text.lower() and "cheque number" in first_page_text.lower():
+        return _parse_icici_new(pdf, first_page_text)
+        
     transactions = []
     metadata = {
         "account_number": "",
@@ -488,8 +491,15 @@ def _parse_icici(pdf, first_page_text):
             if period_match:
                 metadata["statement_period"] = period_match.group(1).strip()
             metadata["holder_name"] = _extract_holder_name(text_full, "ICICI Account Holder")
+            acc_match = re.search(r"Savings Account Number\s*:\s*(\d+)", text_full, re.IGNORECASE)
+            if not acc_match:
+                acc_match = re.search(r"Savings A/c\s*Number\s*:\s*(\d+)", text_full, re.IGNORECASE)
+            if not acc_match:
+                acc_match = re.search(r"Savings Account no\.\s*(\d+)", text_full, re.IGNORECASE)
+            if acc_match:
+                metadata["account_number"] = acc_match.group(1)
         
-        if page_idx == 1:
+        if page_idx == 1 and not metadata["account_number"]:
             acc_match = re.search(r"Savings A/c\s+(\d+)", text_full)
             if acc_match:
                 metadata["account_number"] = acc_match.group(1)
@@ -582,7 +592,11 @@ def _parse_icici(pdf, first_page_text):
                 "Relationship Manager" in line_text or
                 "TOTAL DEPOSITS" in line_text or
                 "Statement of Fixed Deposit" in line_text or
-                "Summary of TDS/Interest" in line_text
+                "Summary of TDS/Interest" in line_text or
+                "Account Related Other Information" in line_text or
+                "Sincerely, Team ICICI" in line_text or
+                "Nominee name is displayed" in line_text or
+                "This is a system-generated statement" in line_text
             )
             if is_footer:
                 break
@@ -2269,5 +2283,130 @@ def _parse_bob(pdf, first_page_text):
                     
         if current_tx:
             transactions.append(current_tx)
+            
+    return metadata, transactions
+
+def _parse_icici_new(pdf, first_page_text):
+    transactions = []
+    metadata = {
+        "account_number": "",
+        "customer_id": "",
+        "account_type": "Savings",
+        "statement_date": "",
+        "statement_period": "",
+        "holder_name": ""
+    }
+    date_regex = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
+    
+    # Extract metadata from first page
+    acc_match = re.search(r"Saving Account no\.\s*(\d+)", first_page_text)
+    if acc_match:
+        metadata["account_number"] = acc_match.group(1)
+        
+    for line in first_page_text.split("\n"):
+        if "M SYED" in line or "SYED ABDUL" in line:
+            metadata["holder_name"] = line.split("Your Base Branch")[0].strip()
+            
+    period_match = re.search(r"for the period\s+([^\n]+)", first_page_text, re.IGNORECASE)
+    if period_match:
+        val = period_match.group(1).replace("in INR", "").replace("-", "to").strip()
+        if "Your Base Branch" in val:
+            val = val.split("Your Base Branch")[0].strip()
+        metadata["statement_period"] = val
+
+    col_bounds = [120.0, 190.0, 400.0, 460.0, 530.0]
+
+    for page_idx, page in enumerate(pdf.pages):
+        words = page.extract_words()
+        if not words:
+            continue
+            
+        footer_top = page.height
+        for w in words:
+            w_lower = w['text'].lower().strip()
+            if w_lower in ["never", "share", "www.icici.bank.in", "dial", "sincerely", "legends", "system", "generated", "signature"]:
+                if w['top'] > 300:
+                    if w['top'] < footer_top:
+                        footer_top = w['top'] - 2.0
+                        
+        min_header_top = 230.0 if page_idx == 0 else 110.0
+        
+        date_tops = []
+        for w in words:
+            if min_header_top <= w['top'] < footer_top:
+                if w['x0'] < 110.0 and date_regex.match(w['text'].strip()):
+                    date_tops.append(w['top'])
+                    
+        date_tops.sort()
+        
+        if not date_tops:
+            continue
+            
+        boundary_tops = [t - 8.0 for t in date_tops]
+            
+        page_txs = []
+        for d_top in date_tops:
+            page_txs.append({
+                "txn_date": "",
+                "value_date": "",
+                "particulars": "",
+                "ref_no": "",
+                "debit": "",
+                "credit": "",
+                "balance": "",
+                "d_top": d_top
+            })
+            
+        for w in words:
+            w_top = w['top']
+            if w_top < min_header_top or w_top >= footer_top:
+                continue
+                
+            w_text = w['text'].strip()
+            
+            best_idx = 0
+            if w_top < boundary_tops[0]:
+                best_idx = 0
+            elif w_top >= boundary_tops[-1]:
+                best_idx = len(boundary_tops) - 1
+            else:
+                for i in range(len(boundary_tops) - 1):
+                    if boundary_tops[i] <= w_top < boundary_tops[i+1]:
+                        best_idx = i
+                        break
+            
+            tx = page_txs[best_idx]
+            
+            assigned = False
+            for c_idx, limit in enumerate(col_bounds):
+                if w['x1'] < limit:
+                    if c_idx == 0:
+                        if date_regex.match(w_text):
+                            tx["txn_date"] += (" " if tx["txn_date"] else "") + w_text
+                            tx["value_date"] = tx["txn_date"]
+                    elif c_idx == 1:
+                        tx["ref_no"] += (" " if tx["ref_no"] else "") + w_text
+                    elif c_idx == 2:
+                        tx["particulars"] += (" " if tx["particulars"] else "") + w_text
+                    elif c_idx == 3:
+                        tx["debit"] += (" " if tx["debit"] else "") + w_text
+                    elif c_idx == 4:
+                        tx["credit"] += (" " if tx["credit"] else "") + w_text
+                    assigned = True
+                    break
+            if not assigned:
+                tx["balance"] += (" " if tx["balance"] else "") + w_text
+                
+        for tx in page_txs:
+            bal = clean_val(tx["balance"]).replace("Cr", "").replace("Dr", "").strip()
+            transactions.append({
+                "txn_date": clean_val(tx["txn_date"]),
+                "value_date": clean_val(tx["value_date"]),
+                "particulars": clean_val(tx["particulars"]),
+                "ref_no": clean_val(tx["ref_no"]),
+                "debit": clean_val(tx["debit"]),
+                "credit": clean_val(tx["credit"]),
+                "balance": bal
+            })
             
     return metadata, transactions
