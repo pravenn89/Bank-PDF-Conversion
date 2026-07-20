@@ -211,5 +211,27 @@ class TestSBIScannedPDF(unittest.TestCase):
             parse_pdf(pdf_path)
         self.assertIn("No digital text found on Page 1", str(context.exception))
 
+class TestBoBStatement(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\798c510d-3f38-4457-8c71-0896ee2415ef\media__1784540144454.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "05640200030545")
+        self.assertEqual(self.metadata.get("holder_name"), "M/S. OMEXA FORMULARY PRIVATE LIMITED")
+        self.assertEqual(self.metadata.get("account_type"), "BARODA ADVANTAGE CURRENT")
+        self.assertEqual(self.metadata.get("statement_period"), "24-10-2023 to 03-01-2024")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 23)
+
+    def test_first_transaction(self):
+        first_tx = self.transactions[0]
+        self.assertEqual(first_tx["txn_date"], "24-10-23")
+        self.assertEqual(first_tx["particulars"], "DIGITB-VADODAR")
+        self.assertEqual(first_tx["balance"], "0")
+
 if __name__ == '__main__':
     unittest.main()

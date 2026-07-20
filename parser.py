@@ -37,6 +37,8 @@ def parse_pdf(pdf_path):
             return _parse_scb(pdf, first_page_text)
         elif "state bank of india" in header_area or "sbi" in header_area or "sbin" in header_area:
             return _parse_sbi(pdf, first_page_text)
+        elif "bank of baroda" in header_area or "bob" in header_area or "barb" in header_area:
+            return _parse_bob(pdf, first_page_text)
         elif "hdfc" in header_area:
             return _parse_hdfc(pdf, first_page_text)
         elif "indusind" in header_area or "indb" in header_area:
@@ -61,6 +63,8 @@ def parse_pdf(pdf_path):
             return _parse_scb(pdf, first_page_text)
         elif "state bank of india" in first_page_lower or "sbi" in first_page_lower or "sbin" in first_page_lower:
             return _parse_sbi(pdf, first_page_text)
+        elif "bank of baroda" in first_page_lower or "bob" in first_page_lower or "barb" in first_page_lower:
+            return _parse_bob(pdf, first_page_text)
         elif "hdfc bank" in first_page_lower or "hdfcbank" in first_page_lower:
             return _parse_hdfc(pdf, first_page_text)
         elif "indusind" in first_page_lower or "indb" in first_page_lower:
@@ -2014,6 +2018,114 @@ def _parse_sbi(pdf, first_page_text):
                     current_tx["credit"] = col5
                 if col6:
                     current_tx["balance"] = col6.replace("CR", "").replace("DR", "").strip()
+                    
+        if current_tx:
+            transactions.append(current_tx)
+            
+    return metadata, transactions
+
+def _parse_bob(pdf, first_page_text):
+    transactions = []
+    metadata = {
+        "account_number": "",
+        "customer_id": "",
+        "account_type": "",
+        "statement_date": "",
+        "statement_period": "",
+        "holder_name": ""
+    }
+    date_regex = re.compile(r"^\d{2}-\d{2}-\d{2}$")
+    
+    for page_idx, page in enumerate(pdf.pages):
+        words = page.extract_words()
+        if not words:
+            raise ValueError(
+                f"No digital text found on Page {page_idx + 1}. This PDF appears to be a scanned image "
+                "or photograph of a statement. Please upload a digitally generated PDF statement."
+            )
+            
+        text_full = page.extract_text() or "" if page_idx > 0 else first_page_text
+        
+        if page_idx == 0:
+            acc_match = re.search(r"A/C\s*Number\s*:\s*(\w+)", text_full)
+            if acc_match:
+                metadata["account_number"] = acc_match.group(1)
+            for line in text_full.split("\n"):
+                if "A/C Name" in line:
+                    metadata["holder_name"] = line.replace("A/C Name", "").replace(":", "").strip()
+            type_match = re.search(r"Scheme Description\s*:\s*([^\n]+)", text_full)
+            if type_match:
+                metadata["account_type"] = type_match.group(1).strip()
+            period_match = re.search(r"period of\s+([\d-]+)\s+to\s+([\d-]+)", text_full)
+            if period_match:
+                metadata["statement_period"] = f"{period_match.group(1)} to {period_match.group(2)}"
+            ifsc_match = re.search(r"IFSC CODE:\s*(\w+)", text_full)
+            if ifsc_match:
+                metadata["customer_id"] = f"IFSC: {ifsc_match.group(1)}"
+                
+        col_bounds = [112.0, 185.0, 230.0, 310.0, 382.0]
+        
+        # Group words by Y coordinate
+        all_lines = defaultdict(list)
+        for w in words:
+            found = False
+            for existing_top in all_lines.keys():
+                if abs(w['top'] - existing_top) < 4.0:
+                    all_lines[existing_top].append(w)
+                    found = True
+                    break
+            if not found:
+                all_lines[w['top']].append(w)
+                
+        sorted_tops = sorted(all_lines.keys())
+        current_tx = None
+        
+        for top in sorted_tops:
+            line_words = all_lines[top]
+            line_words.sort(key=lambda w: w['x0'])
+            
+            line_text = " ".join([w['text'] for w in line_words])
+            line_lower = line_text.lower().strip()
+            
+            if "page total:" in line_lower or "grand total:" in line_lower or "unclr bal:" in line_lower or "balance forward" in line_lower:
+                break
+                
+            first_w = line_words[0]['text'].strip()
+            
+            if date_regex.match(first_w):
+                if current_tx:
+                    transactions.append(current_tx)
+                
+                cols = [""] * 6
+                for w in line_words:
+                    assigned = False
+                    for c_idx, limit in enumerate(col_bounds):
+                        if w['x1'] < limit:
+                            cols[c_idx] += (" " if cols[c_idx] else "") + w['text']
+                            assigned = True
+                            break
+                    if not assigned:
+                        cols[5] += (" " if cols[5] else "") + w['text']
+                
+                col0 = clean_val(cols[0])
+                col1 = clean_val(cols[1])
+                col2 = clean_val(cols[2])
+                col3 = clean_val(cols[3])
+                col4 = clean_val(cols[4])
+                col5 = clean_val(cols[5])
+                
+                current_tx = {
+                    "txn_date": col0,
+                    "value_date": col0,
+                    "particulars": col1,
+                    "ref_no": col2,
+                    "debit": col3,
+                    "credit": col4,
+                    "balance": col5.replace("Cr", "").replace("Dr", "").strip()
+                }
+            elif current_tx:
+                if not line_lower.startswith("---") and not line_lower.startswith("page total") and not line_lower.startswith("grand total"):
+                    current_tx["particulars"] += " " + line_text.strip()
                     
         if current_tx:
             transactions.append(current_tx)
