@@ -2,6 +2,11 @@ import streamlit as st
 import pandas as pd
 import tempfile
 import os
+import importlib
+import parser
+import excel_generator
+importlib.reload(parser)
+importlib.reload(excel_generator)
 from parser import parse_pdf
 from excel_generator import generate_excel
 
