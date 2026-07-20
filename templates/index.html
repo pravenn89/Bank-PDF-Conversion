@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bank Statement Converter & Analyzer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar or Header -->
+        <header class="app-header">
+            <div class="brand">
+                <div class="logo-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                </div>
+                <h1>Antigravity Statement Converter</h1>
+            </div>
+            <p class="subtitle">Convert bank PDF statements into professionally formatted Excel files with live analysis</p>
+        </header>
+
+        <main class="app-content">
+            <!-- Upload Panel -->
+            <section id="upload-section" class="card glass upload-card">
+                <div class="upload-zone" id="drop-zone">
+                    <div class="upload-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    </div>
+                    <h3>Drag & Drop statement PDF here</h3>
+                    <p>or click to browse your files (supports KVB and digital statements)</p>
+                    <input type="file" id="file-input" accept=".pdf" style="display: none;">
+                </div>
+                
+                <div class="progress-bar-container" id="progress-container" style="display: none;">
+                    <div class="progress-info">
+                        <span id="progress-status">Uploading statement...</span>
+                        <span id="progress-percentage">0%</span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Dashboard / Preview (Hidden initially) -->
+            <section id="dashboard-section" class="dashboard-grid" style="display: none;">
+                
+                <!-- Account Meta card -->
+                <div class="card glass meta-card">
+                    <div class="card-header">
+                        <div class="card-title-container">
+                            <span class="badge">Metadata</span>
+                            <h2>Account Information</h2>
+                        </div>
+                    </div>
+                    <div class="meta-grid">
+                        <div class="meta-item">
+                            <span class="label">Account Holder</span>
+                            <span class="value" id="meta-holder" contenteditable="true">N/A</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="label">Account Number</span>
+                            <span class="value" id="meta-number" contenteditable="true">N/A</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="label">Customer ID</span>
+                            <span class="value" id="meta-custid" contenteditable="true">N/A</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="label">Account Type</span>
+                            <span class="value" id="meta-type" contenteditable="true">N/A</span>
+                        </div>
+                        <div class="meta-item full-width">
+                            <span class="label">Statement Period</span>
+                            <span class="value" id="meta-period" contenteditable="true">N/A</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Summary Statistics Card -->
+                <div class="card glass stats-card">
+                    <div class="card-header">
+                        <div class="card-title-container">
+                            <span class="badge success">Live</span>
+                            <h2>Statement Summary</h2>
+                        </div>
+                    </div>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <span class="stat-label">Total Credits (Inflow)</span>
+                            <span class="stat-value green" id="stat-total-credit">0.00</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-label">Total Debits (Outflow)</span>
+                            <span class="stat-value red" id="stat-total-debit">0.00</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-label">Net Cash Flow</span>
+                            <span class="stat-value" id="stat-net-flow">0.00</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-label">Ending Balance</span>
+                            <span class="stat-value info" id="stat-end-balance">0.00</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Analytics Card -->
+                <div class="card glass analytics-card">
+                    <div class="card-header">
+                        <div class="card-title-container">
+                            <span class="badge info">Analytics</span>
+                            <h2>Daily Cash Flow Trend</h2>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="cashflow-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Export & Options Panel -->
+                <div class="card glass options-card full-width">
+                    <div class="options-flex">
+                        <div class="option-group">
+                            <label for="currency-select">Excel Currency Symbol:</label>
+                            <select id="currency-select" class="styled-select">
+                                <option value="₹" selected>₹ (INR - Indian Rupee)</option>
+                                <option value="$">$ (USD - US Dollar)</option>
+                                <option value="€">€ (EUR - Euro)</option>
+                                <option value="£">£ (GBP - British Pound)</option>
+                                <option value="">None (Raw numbers)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="action-buttons">
+                            <button id="add-row-btn" class="btn btn-secondary">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                Add Row
+                            </button>
+                            <button id="export-btn" class="btn btn-primary">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                Generate Styled Excel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Transactions Table Card -->
+                <div class="card glass table-card full-width">
+                    <div class="card-header">
+                        <div class="card-title-container">
+                            <h2>Extracted Transactions</h2>
+                            <span class="table-count" id="table-count">0 transactions loaded</span>
+                        </div>
+                    </div>
+                    
+                    <div style="padding: 0 1.5rem;">
+                        <div class="table-header-controls">
+                            <input type="text" id="search-input" class="search-input" placeholder="Search transactions by particulars, date or amount...">
+                            <div class="pagination-size">
+                                <label for="page-size-select">Show:</label>
+                                <select id="page-size-select" class="styled-select-small">
+                                    <option value="15" selected>15</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                    <option value="all">All</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table id="transactions-table">
+                            <thead>
+                                <tr>
+                                    <th width="12%">Txn Date</th>
+                                    <th width="12%">Value Date</th>
+                                    <th width="40%">Particulars / Description</th>
+                                    <th width="12%">Ref. No.</th>
+                                    <th width="10%">Debit</th>
+                                    <th width="10%">Credit</th>
+                                    <th width="10%">Balance</th>
+                                    <th width="4%"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-body">
+                                <!-- Dynamic rows -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div style="padding: 0 1.5rem 1.5rem 1.5rem;">
+                        <div class="pagination-footer">
+                            <button id="prev-page-btn" class="btn-secondary-small" disabled>Previous</button>
+                            <span id="page-info">Page 1 of 1</span>
+                            <button id="next-page-btn" class="btn-secondary-small" disabled>Next</button>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+        </main>
+        
+        <footer class="app-footer-bar">
+            <p>Antigravity © 2026. Made with ❤️ for perfect financial conversions.</p>
+        </footer>
+    </div>
+
+    <!-- Error/Success Notification Toast -->
+    <div id="toast" class="toast" style="display: none;">
+        <span id="toast-message">Message goes here</span>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
