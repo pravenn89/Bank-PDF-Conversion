@@ -319,5 +319,30 @@ class TestPasswordProtectedPDF(unittest.TestCase):
         self.assertEqual(metadata.get("account_number"), "1244013000000032")
         self.assertEqual(len(transactions), 19)
 
+class TestIndusIndNewStatement(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\798c510d-3f38-4457-8c71-0896ee2415ef\media__1784641803738.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "159840161447")
+        self.assertEqual(self.metadata.get("customer_id"), "3XXXX386")
+        self.assertEqual(self.metadata.get("account_type"), "INDUS MAXIMA")
+        self.assertEqual(self.metadata.get("statement_period"), "01 Apr 2025 to 31 Mar 2026")
+        self.assertEqual(self.metadata.get("holder_name"), "P VANI")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 439)
+
+    def test_first_transaction(self):
+        first_tx = self.transactions[0]
+        self.assertEqual(first_tx["txn_date"], "31 Mar 2026")
+        self.assertEqual(first_tx["particulars"], "159840161447:Int.Pd:01-0 1-2026 to 31-03-2026")
+        self.assertEqual(first_tx["ref_no"], "S99894669")
+        self.assertEqual(first_tx["credit"], "697.00")
+        self.assertEqual(first_tx["balance"], "68742.17")
+
 if __name__ == '__main__':
     unittest.main()

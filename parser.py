@@ -302,6 +302,9 @@ def _parse_hdfc(pdf, first_page_text):
     return metadata, transactions
 
 def _parse_indusind(pdf, first_page_text):
+    if "particulars" in first_page_text.lower() and "withdrawal" in first_page_text.lower():
+        return _parse_indusind_new(pdf, first_page_text)
+        
     transactions = []
     metadata = {
         "account_number": "",
@@ -2433,5 +2436,146 @@ def _parse_icici_new(pdf, first_page_text):
                 "credit": clean_val(tx["credit"]),
                 "balance": bal
             })
+            
+    return metadata, transactions
+
+def _parse_indusind_new(pdf, first_page_text):
+    transactions = []
+    metadata = {
+        "account_number": "",
+        "customer_id": "",
+        "account_type": "",
+        "statement_date": "",
+        "statement_period": "",
+        "holder_name": ""
+    }
+    date_regex = re.compile(r"^\d{1,2}\s+[A-Za-z]{3}\s+\d{4}$", re.IGNORECASE)
+    
+    # Extract metadata from first page
+    lines = [l.strip() for l in first_page_text.split("\n") if l.strip()]
+    
+    period_match = re.search(r"Period:\s*([^\n]+)", first_page_text)
+    if period_match:
+        metadata["statement_period"] = period_match.group(1).replace("-", "to").strip()
+        
+    if len(lines) > 2:
+        holder = lines[2]
+        if "Date:" in holder:
+            holder = holder.split("Date:")[0].strip()
+        metadata["holder_name"] = holder
+        
+    for idx, line in enumerate(lines):
+        line_lower = line.lower()
+        if "account no." in line_lower and "account type" in line_lower:
+            if idx + 1 < len(lines):
+                val_line = lines[idx + 1]
+                parts = val_line.split()
+                if len(parts) >= 2:
+                    metadata["account_number"] = parts[0]
+                    type_parts = []
+                    for p in parts[1:]:
+                        if p in ["INR", "USD", "EUR", "GBP"]:
+                            break
+                        type_parts.append(p)
+                    metadata["account_type"] = " ".join(type_parts)
+                    
+        if "holding status" in line_lower and "customer id" in line_lower:
+            if idx + 1 < len(lines):
+                val_line = lines[idx + 1]
+                parts = val_line.split()
+                if parts:
+                    metadata["customer_id"] = parts[-1]
+
+    col_bounds = [110.0, 210.0, 330.0, 415.0, 480.0]
+
+    for page_idx, page in enumerate(pdf.pages):
+        words = page.extract_words()
+        if not words:
+            continue
+            
+        header_y = None
+        for w in words:
+            if w['text'].lower() == "particulars":
+                header_y = w['top']
+                break
+        if header_y is None:
+            header_y = 100.0 if page_idx > 0 else 525.0
+            
+        table_words = [w for w in words if w['top'] > header_y + 10]
+        
+        # Group words by line
+        lines_dict = defaultdict(list)
+        for w in table_words:
+            found = False
+            for existing_top in lines_dict.keys():
+                if abs(w['top'] - existing_top) < 6.0:
+                    lines_dict[existing_top].append(w)
+                    found = True
+                    break
+            if not found:
+                lines_dict[w['top']].append(w)
+                
+        sorted_tops = sorted(lines_dict.keys())
+        current_tx = None
+        
+        for top in sorted_tops:
+            line_words = lines_dict[top]
+            line_words.sort(key=lambda w: w['x0'])
+            line_text = " ".join([w['text'] for w in line_words])
+            
+            # Stop at disclaimer / footer info
+            if "this is a computer generated" in line_text.lower() or "does not require signature" in line_text.lower():
+                break
+                
+            cols = [""] * 6
+            for w in line_words:
+                x_mid = (w['x0'] + w['x1']) / 2
+                if x_mid < col_bounds[0]:
+                    cols[0] += (" " if cols[0] else "") + w['text']
+                elif col_bounds[0] <= x_mid < col_bounds[1]:
+                    cols[1] += (" " if cols[1] else "") + w['text']
+                elif col_bounds[1] <= x_mid < col_bounds[2]:
+                    cols[2] += (" " if cols[2] else "") + w['text']
+                elif col_bounds[2] <= x_mid < col_bounds[3]:
+                    cols[3] += (" " if cols[3] else "") + w['text']
+                elif col_bounds[3] <= x_mid < col_bounds[4]:
+                    cols[4] += (" " if cols[4] else "") + w['text']
+                elif col_bounds[4] <= x_mid:
+                    cols[5] += (" " if cols[5] else "") + w['text']
+                    
+            col0 = clean_val(cols[0])
+            col1 = clean_val(cols[1])
+            col2 = clean_val(cols[2])
+            col3 = clean_val(cols[3])
+            col4 = clean_val(cols[4])
+            col5 = clean_val(cols[5])
+            
+            if col0 and date_regex.match(col0):
+                if current_tx:
+                    transactions.append(current_tx)
+                current_tx = {
+                    "txn_date": col0,
+                    "value_date": col0,
+                    "particulars": col1,
+                    "ref_no": col2,
+                    "debit": col3,
+                    "credit": col4,
+                    "balance": col5
+                }
+            elif current_tx:
+                if col1:
+                    current_tx["particulars"] += " " + col1
+                if col2:
+                    current_tx["ref_no"] += " " + col2
+                if col3:
+                    current_tx["debit"] = col3
+                if col4:
+                    current_tx["credit"] = col4
+                if col5:
+                    current_tx["balance"] = col5
+                    
+        if current_tx:
+            transactions.append(current_tx)
+            current_tx = None
             
     return metadata, transactions
