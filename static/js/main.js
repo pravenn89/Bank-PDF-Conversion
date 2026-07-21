@@ -38,6 +38,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const nextPageBtn = document.getElementById('next-page-btn');
     const pageInfo = document.getElementById('page-info');
 
+    // Password Modal Elements
+    const passwordModal = document.getElementById('password-modal');
+    const pdfPasswordInput = document.getElementById('pdf-password-input');
+    const passwordError = document.getElementById('password-error');
+    const cancelPasswordBtn = document.getElementById('cancel-password-btn');
+    const submitPasswordBtn = document.getElementById('submit-password-btn');
+    let activeFile = null;
+
     // Global state
     let currencySymbol = '₹';
     let allTransactions = []; // Holds the full list in memory
@@ -73,15 +81,40 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Password Modal Actions
+    cancelPasswordBtn.addEventListener('click', () => {
+        passwordModal.style.display = 'none';
+        pdfPasswordInput.value = '';
+        handleError('Unlocking statement cancelled by user.');
+    });
+
+    submitPasswordBtn.addEventListener('click', () => {
+        const pwd = pdfPasswordInput.value;
+        if (!pwd) return;
+        passwordModal.style.display = 'none';
+        pdfPasswordInput.value = '';
+        handleFileUpload(activeFile, pwd);
+    });
+
+    pdfPasswordInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            submitPasswordBtn.click();
+        }
+    });
+
     // Handle File Upload & Parse
-    function handleFileUpload(file) {
+    function handleFileUpload(file, password = null) {
         if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
             showToast('Please upload a valid PDF file.', 'error');
             return;
         }
 
+        activeFile = file;
         const formData = new FormData();
         formData.append('file', file);
+        if (password) {
+            formData.append('password', password);
+        }
 
         // Show progress UI
         progressContainer.style.display = 'block';
@@ -100,12 +133,9 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         xhr.onload = function() {
-            if (xhr.status === 200) {
-                // Parse phase takes remaining 50%
-                updateProgress(90, 'Analyzing statement structure...');
-                
-                try {
-                    const response = JSON.parse(xhr.responseText);
+            try {
+                const response = JSON.parse(xhr.responseText);
+                if (xhr.status === 200) {
                     if (response.success) {
                         updateProgress(100, 'Parsing complete!');
                         setTimeout(() => {
@@ -115,16 +145,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else {
                         handleError(response.error || 'Unknown parsing error occurred.');
                     }
-                } catch (e) {
-                    handleError('Failed to parse server response.');
+                } else if (xhr.status === 400 && (response.error === 'PASSWORD_REQUIRED' || response.error === 'PASSWORD_INCORRECT')) {
+                    // Hide progress UI and prompt for password
+                    progressContainer.style.display = 'none';
+                    updateProgress(0, '');
+                    
+                    if (response.error === 'PASSWORD_INCORRECT') {
+                        passwordError.style.display = 'block';
+                    } else {
+                        passwordError.style.display = 'none';
+                    }
+                    
+                    passwordModal.style.display = 'flex';
+                    pdfPasswordInput.focus();
+                } else {
+                    handleError(response.error || `Server error (${xhr.status})`);
                 }
-            } else {
-                try {
-                    const response = JSON.parse(xhr.responseText);
-                    handleError(response.error || 'Server error occurred.');
-                } catch (e) {
-                    handleError(`Server error (${xhr.status})`);
-                }
+            } catch (e) {
+                handleError('Failed to parse server response.');
             }
         };
 
