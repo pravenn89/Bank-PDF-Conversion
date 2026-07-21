@@ -42,9 +42,10 @@ def upload_file():
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
         
+        password = request.form.get('password')
         try:
             # Parse statement
-            metadata, transactions = parse_pdf(filepath)
+            metadata, transactions = parse_pdf(filepath, password=password)
             
             # Clean up the uploaded PDF file after parsing
             if os.path.exists(filepath):
@@ -55,6 +56,17 @@ def upload_file():
                 'metadata': metadata,
                 'transactions': transactions
             })
+        except ValueError as ve:
+            # Cleanup on failure
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            err_msg = str(ve)
+            if err_msg in ["PASSWORD_REQUIRED", "PASSWORD_INCORRECT"]:
+                return jsonify({
+                    'success': False,
+                    'error': err_msg
+                }), 400
+            return jsonify({'error': err_msg}), 400
         except Exception as e:
             import traceback
             traceback.print_exc()

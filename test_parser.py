@@ -298,5 +298,26 @@ class TestICICIMultiPageStatement(unittest.TestCase):
         self.assertEqual(first_tx["particulars"], "B/F NEFT-HDFCN52025013029279369-EXCEL HR")
         self.assertEqual(first_tx["balance"], "10,008.83")
 
+class TestPasswordProtectedPDF(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\798c510d-3f38-4457-8c71-0896ee2415ef\media__encrypted.pdf"
+
+    def test_missing_password_raises_required(self):
+        with self.assertRaises(ValueError) as context:
+            parse_pdf(self.pdf_path)
+        self.assertEqual(str(context.exception), "PASSWORD_REQUIRED")
+
+    def test_incorrect_password_raises_incorrect(self):
+        with self.assertRaises(ValueError) as context:
+            parse_pdf(self.pdf_path, password="wrong_pwd")
+        self.assertEqual(str(context.exception), "PASSWORD_INCORRECT")
+
+    def test_correct_password_parses_successfully(self):
+        metadata, transactions = parse_pdf(self.pdf_path, password="decrypt123")
+        self.assertIsNotNone(metadata)
+        self.assertEqual(metadata.get("account_number"), "1244013000000032")
+        self.assertEqual(len(transactions), 19)
+
 if __name__ == '__main__':
     unittest.main()

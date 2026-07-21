@@ -15,9 +15,34 @@ def _extract_holder_name(text_full, default="Account Holder"):
             return clean_line
     return default
 
-def parse_pdf(pdf_path):
+def parse_pdf(pdf_path, password=None):
     # Open the PDF to detect bank type and run the appropriate parser
-    with pdfplumber.open(pdf_path) as pdf:
+    open_pwd = password if password else None
+    try:
+        pdf_file = pdfplumber.open(pdf_path, password=open_pwd)
+    except Exception as e:
+        orig_errs = [e]
+        if getattr(e, "__cause__", None):
+            orig_errs.append(e.__cause__)
+        if getattr(e, "__context__", None):
+            orig_errs.append(e.__context__)
+            
+        is_pwd = False
+        for err in orig_errs:
+            err_msg = str(err).lower()
+            err_class = err.__class__.__name__.lower()
+            if "password" in err_msg or "password" in err_class or "decrypt" in err_msg or "encrypt" in err_msg:
+                is_pwd = True
+                break
+                
+        if is_pwd:
+            if not password:
+                raise ValueError("PASSWORD_REQUIRED")
+            else:
+                raise ValueError("PASSWORD_INCORRECT")
+        raise e
+        
+    with pdf_file as pdf:
         if not pdf.pages:
             raise ValueError("The PDF document does not contain any pages.")
         
