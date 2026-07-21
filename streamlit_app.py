@@ -66,6 +66,7 @@ with st.sidebar:
     - Standard Chartered Bank (SCB)
     - State Bank of India (SBI)
     - Bank of Baroda (BoB)
+    - Canara Bank
     - Axis Bank *(scanned check)*
     """)
     st.info("💡 **Scanned PDF check**: Axis and scanned SBI statements will trigger a scanned document warning.")

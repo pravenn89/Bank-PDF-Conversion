@@ -52,7 +52,20 @@ def parse_pdf(pdf_path, password=None):
         header_area = first_page_lower[:600]
         
         # Auto-detect bank type based on header metadata
-        if "union bank" in header_area or "unionbank" in header_area or "ubin" in header_area:
+        # Auto-detect bank type based on header metadata
+        if "kotak" in header_area or "kkbk" in header_area:
+            return _parse_kotak(pdf, first_page_text)
+        elif "hdfc" in header_area:
+            return _parse_hdfc(pdf, first_page_text)
+        elif "axis" in header_area or "utib" in header_area:
+            return _parse_axis(pdf, first_page_text)
+        elif "icici" in header_area:
+            return _parse_icici(pdf, first_page_text)
+        elif "indusind" in header_area or "indb" in header_area:
+            return _parse_indusind(pdf, first_page_text)
+        elif "canara" in header_area or "cnrb" in header_area:
+            return _parse_canara(pdf, first_page_text)
+        elif "union bank" in header_area or "unionbank" in header_area or "ubin" in header_area:
             return _parse_union_bank(pdf, first_page_text)
         elif "indian bank" in header_area or "indianbank" in header_area or "idib" in header_area:
             return _parse_indian_bank(pdf, first_page_text)
@@ -60,25 +73,27 @@ def parse_pdf(pdf_path, password=None):
             return _parse_pnb(pdf, first_page_text)
         elif "standard chartered" in header_area or "scb" in header_area or "scbl" in header_area:
             return _parse_scb(pdf, first_page_text)
-        elif "state bank of india" in header_area or "sbi" in header_area or "sbin" in header_area:
-            return _parse_sbi(pdf, first_page_text)
         elif "bank of baroda" in header_area or "bob" in header_area or "barb" in header_area:
             return _parse_bob(pdf, first_page_text)
-        elif "hdfc" in header_area:
-            return _parse_hdfc(pdf, first_page_text)
-        elif "indusind" in header_area or "indb" in header_area:
-            return _parse_indusind(pdf, first_page_text)
-        elif "icici" in header_area:
-            return _parse_icici(pdf, first_page_text)
-        elif "kotak" in header_area or "kkbk" in header_area:
-            return _parse_kotak(pdf, first_page_text)
-        elif "axis" in header_area or "utib" in header_area:
-            return _parse_axis(pdf, first_page_text)
         elif "karur vysya" in header_area or "kvb" in header_area:
             return _parse_kvb(pdf, first_page_text)
+        elif "state bank of india" in header_area or re.search(r"\bsbi\b", header_area) or re.search(r"\bsbin\b", header_area):
+            return _parse_sbi(pdf, first_page_text)
             
         # Fallbacks in case branding is further down on Page 1
-        if "union bank" in first_page_lower or "ubin" in first_page_lower:
+        if "kotak" in first_page_lower or "kkbk" in first_page_lower:
+            return _parse_kotak(pdf, first_page_text)
+        elif "hdfc bank" in first_page_lower or "hdfcbank" in first_page_lower:
+            return _parse_hdfc(pdf, first_page_text)
+        elif "axis" in first_page_lower or "utib" in first_page_lower:
+            return _parse_axis(pdf, first_page_text)
+        elif "icici" in first_page_lower:
+            return _parse_icici(pdf, first_page_text)
+        elif "indusind" in first_page_lower or "indb" in first_page_lower:
+            return _parse_indusind(pdf, first_page_text)
+        elif "canara" in first_page_lower or "cnrb" in first_page_lower:
+            return _parse_canara(pdf, first_page_text)
+        elif "union bank" in first_page_lower or "ubin" in first_page_lower:
             return _parse_union_bank(pdf, first_page_text)
         elif "indian bank" in first_page_lower or "idib" in first_page_lower:
             return _parse_indian_bank(pdf, first_page_text)
@@ -86,20 +101,12 @@ def parse_pdf(pdf_path, password=None):
             return _parse_pnb(pdf, first_page_text)
         elif "standard chartered" in first_page_lower or "scb" in first_page_lower or "scbl" in first_page_lower:
             return _parse_scb(pdf, first_page_text)
-        elif "state bank of india" in first_page_lower or "sbi" in first_page_lower or "sbin" in first_page_lower:
-            return _parse_sbi(pdf, first_page_text)
         elif "bank of baroda" in first_page_lower or "bob" in first_page_lower or "barb" in first_page_lower:
             return _parse_bob(pdf, first_page_text)
-        elif "hdfc bank" in first_page_lower or "hdfcbank" in first_page_lower:
-            return _parse_hdfc(pdf, first_page_text)
-        elif "indusind" in first_page_lower or "indb" in first_page_lower:
-            return _parse_indusind(pdf, first_page_text)
-        elif "icici" in first_page_lower:
-            return _parse_icici(pdf, first_page_text)
-        elif "kotak" in first_page_lower or "kkbk" in first_page_lower:
-            return _parse_kotak(pdf, first_page_text)
-        elif "axis" in first_page_lower or "utib" in first_page_lower:
-            return _parse_axis(pdf, first_page_text)
+        elif "karur vysya" in first_page_lower or "kvb" in first_page_lower:
+            return _parse_kvb(pdf, first_page_text)
+        elif "state bank of india" in first_page_lower or re.search(r"\bsbi\b", first_page_lower) or re.search(r"\bsbin\b", first_page_lower):
+            return _parse_sbi(pdf, first_page_text)
         else:
             return _parse_kvb(pdf, first_page_text)
 
@@ -2573,6 +2580,140 @@ def _parse_indusind_new(pdf, first_page_text):
                     current_tx["credit"] = col4
                 if col5:
                     current_tx["balance"] = col5
+                    
+        if current_tx:
+            transactions.append(current_tx)
+            current_tx = None
+            
+    return metadata, transactions
+
+def _parse_canara(pdf, first_page_text):
+    transactions = []
+    metadata = {
+        "account_number": "",
+        "customer_id": "",
+        "account_type": "",
+        "statement_date": "",
+        "statement_period": "",
+        "holder_name": ""
+    }
+    date_regex = re.compile(r"^\d{2}-[A-Za-z]{3}-\d{2}$", re.IGNORECASE)
+    
+    # Extract metadata from first page
+    acc_match = re.search(r"Account No\s*:\s*(\w+)", first_page_text, re.IGNORECASE)
+    if acc_match:
+        metadata["account_number"] = acc_match.group(1)
+        
+    cust_match = re.search(r"Customer ID\s*:\s*(\w+)", first_page_text, re.IGNORECASE)
+    if cust_match:
+        metadata["customer_id"] = cust_match.group(1)
+        
+    type_match = re.search(r"Product Name\s*:\s*([^\n]+)", first_page_text, re.IGNORECASE)
+    if type_match:
+        metadata["account_type"] = type_match.group(1).strip()
+        
+    period_match = re.search(r"Period\s*:\s*([^\n]+)", first_page_text, re.IGNORECASE)
+    if period_match:
+        metadata["statement_period"] = period_match.group(1).replace("To", "to").strip()
+        
+    name_match = re.search(r"Customer Name\s*:\s*([^\n]+)", first_page_text, re.IGNORECASE)
+    if name_match:
+        metadata["holder_name"] = name_match.group(1).strip()
+        
+    col_bounds = [75.0, 125.0, 180.0, 255.0, 360.0, 410.0, 510.0]
+
+    for page_idx, page in enumerate(pdf.pages):
+        words = page.extract_words()
+        if not words:
+            continue
+            
+        header_y = None
+        for w in words:
+            if w['text'].lower() == "description":
+                header_y = w['top']
+                break
+        if header_y is None:
+            header_y = 100.0 if page_idx > 0 else 426.0
+            
+        table_words = [w for w in words if w['top'] > header_y + 10]
+        
+        # Group words by line
+        lines_dict = defaultdict(list)
+        for w in table_words:
+            found = False
+            for existing_top in lines_dict.keys():
+                if abs(w['top'] - existing_top) < 6.0:
+                    lines_dict[existing_top].append(w)
+                    found = True
+                    break
+            if not found:
+                lines_dict[w['top']].append(w)
+                
+        sorted_tops = sorted(lines_dict.keys())
+        current_tx = None
+        
+        for top in sorted_tops:
+            line_words = lines_dict[top]
+            line_words.sort(key=lambda w: w['x0'])
+            line_text = " ".join([w['text'] for w in line_words])
+            
+            if "statement summary" in line_text.lower() or "end of statement" in line_text.lower():
+                break
+                
+            cols = [""] * 8
+            for w in line_words:
+                x_mid = (w['x0'] + w['x1']) / 2
+                if x_mid < col_bounds[0]:
+                    cols[0] += (" " if cols[0] else "") + w['text']
+                elif col_bounds[0] <= x_mid < col_bounds[1]:
+                    cols[1] += (" " if cols[1] else "") + w['text']
+                elif col_bounds[1] <= x_mid < col_bounds[2]:
+                    cols[2] += (" " if cols[2] else "") + w['text']
+                elif col_bounds[2] <= x_mid < col_bounds[3]:
+                    cols[3] += (" " if cols[3] else "") + w['text']
+                elif col_bounds[3] <= x_mid < col_bounds[4]:
+                    cols[4] += (" " if cols[4] else "") + w['text']
+                elif col_bounds[4] <= x_mid < col_bounds[5]:
+                    cols[5] += (" " if cols[5] else "") + w['text']
+                elif col_bounds[5] <= x_mid < col_bounds[6]:
+                    cols[6] += (" " if cols[6] else "") + w['text']
+                elif col_bounds[6] <= x_mid:
+                    cols[7] += (" " if cols[7] else "") + w['text']
+                    
+            col0 = clean_val(cols[0])
+            col1 = clean_val(cols[1])
+            col2 = clean_val(cols[2])
+            col3 = clean_val(cols[3])
+            col4 = cols[4].strip()
+            col5 = clean_val(cols[5])
+            col6 = clean_val(cols[6])
+            col7 = clean_val(cols[7])
+            
+            desc = "" if col4 == "-" else col4
+            
+            if col0 and date_regex.match(col0):
+                if current_tx:
+                    transactions.append(current_tx)
+                current_tx = {
+                    "txn_date": col0,
+                    "value_date": col1,
+                    "particulars": desc,
+                    "ref_no": col3,
+                    "debit": col5,
+                    "credit": col6,
+                    "balance": col7
+                }
+            elif current_tx:
+                if desc:
+                    current_tx["particulars"] += " " + desc
+                if col3:
+                    current_tx["ref_no"] += " " + col3
+                if col5:
+                    current_tx["debit"] = col5
+                if col6:
+                    current_tx["credit"] = col6
+                if col7:
+                    current_tx["balance"] = col7
                     
         if current_tx:
             transactions.append(current_tx)

@@ -344,5 +344,53 @@ class TestIndusIndNewStatement(unittest.TestCase):
         self.assertEqual(first_tx["credit"], "697.00")
         self.assertEqual(first_tx["balance"], "68742.17")
 
+class TestCanaraStatement(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\798c510d-3f38-4457-8c71-0896ee2415ef\media__1784651065922.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "0908101053082")
+        self.assertEqual(self.metadata.get("customer_id"), "116613867")
+        self.assertEqual(self.metadata.get("account_type"), "CANARA SB GENERAL")
+        self.assertEqual(self.metadata.get("statement_period"), "01-04-2025 to 31-03-2026")
+        self.assertEqual(self.metadata.get("holder_name"), "Ms COMMANDERS COURT CONDOMINIUM O W A S S")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 106)
+
+    def test_first_transaction(self):
+        first_tx = self.transactions[0]
+        self.assertEqual(first_tx["txn_date"], "01-APR-25")
+        self.assertEqual(first_tx["particulars"], "B/F ...")
+        self.assertEqual(first_tx["credit"], "865,868.00")
+        self.assertEqual(first_tx["balance"], "865,868.00")
+
+class TestKotakCurrentStatement(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\798c510d-3f38-4457-8c71-0896ee2415ef\media__1784651065924.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "7512114362")
+        self.assertEqual(self.metadata.get("customer_id"), "xxxxxx218")
+        self.assertEqual(self.metadata.get("account_type"), "Current")
+        self.assertEqual(self.metadata.get("statement_period"), "30 Sep 2025 - 29 Oct 2025")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 13)
+
+    def test_first_transaction(self):
+        first_tx = self.transactions[0]
+        self.assertEqual(first_tx["txn_date"], "30 Sep 2025")
+        self.assertEqual(first_tx["particulars"], "NEFT ICIN427351127937 R P S CONSULTING PVT LTD IC")
+        self.assertEqual(first_tx["ref_no"], "NEFTINW-1349690237")
+        self.assertEqual(first_tx["credit"], "31,500.00")
+        self.assertEqual(first_tx["balance"], "31,500.00")
+
 if __name__ == '__main__':
     unittest.main()
