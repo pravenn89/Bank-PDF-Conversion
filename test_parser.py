@@ -392,5 +392,60 @@ class TestKotakCurrentStatement(unittest.TestCase):
         self.assertEqual(first_tx["credit"], "31,500.00")
         self.assertEqual(first_tx["balance"], "31,500.00")
 
+class TestDBSStatement(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\798c510d-3f38-4457-8c71-0896ee2415ef\.user_uploaded\media__1784789014825.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "0995322000000542")
+        self.assertEqual(self.metadata.get("customer_id"), "2L7029805")
+        self.assertEqual(self.metadata.get("account_type"), "SBOTH")
+        self.assertEqual(self.metadata.get("statement_period"), "01/04/2025 to 31/03/2026")
+        self.assertEqual(self.metadata.get("holder_name"), "VARSHA MENON")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 24)
+
+    def test_first_transaction(self):
+        first_tx = self.transactions[0]
+        self.assertEqual(first_tx["txn_date"], "02/04/2025")
+        self.assertEqual(first_tx["debit"], "450.00")
+        self.assertEqual(first_tx["balance"], "3,081.37")
+
+class TestRBLStatement(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\798c510d-3f38-4457-8c71-0896ee2415ef\.user_uploaded\media__1784789014833.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "409000651744")
+        self.assertEqual(self.metadata.get("customer_id"), "20131094")
+        self.assertEqual(self.metadata.get("account_type"), "CURRENT")
+        self.assertEqual(self.metadata.get("holder_name"), "VM DESIGN WORKS")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 383)
+
+class TestSBINewStatement(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\798c510d-3f38-4457-8c71-0896ee2415ef\.user_uploaded\media__1784789014914.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "20304011511")
+        self.assertEqual(self.metadata.get("customer_id"), "88512235835")
+        self.assertEqual(self.metadata.get("account_type"), "REGULAR SB CHQ-INDIVIDUALS")
+        self.assertEqual(self.metadata.get("holder_name"), "Miss. AYUSHI AISHWARYA")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 1916)
+
 if __name__ == '__main__':
     unittest.main()
