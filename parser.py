@@ -2611,10 +2611,10 @@ def _parse_canara(pdf, first_page_text):
         "statement_period": "",
         "holder_name": ""
     }
-    date_regex = re.compile(r"^\d{2}-[A-Za-z]{3}-\d{2}$", re.IGNORECASE)
+    date_regex = re.compile(r"^\d{2}[-/\s]+(?:[A-Za-z]{3}|\d{2})[-/\s]+\d{2,4}$", re.IGNORECASE)
     
     # Extract metadata from first page
-    acc_match = re.search(r"Account No\s*:\s*(\w+)", first_page_text, re.IGNORECASE)
+    acc_match = re.search(r"(?:Account No|A/c No)\s*:\s*(\w+)", first_page_text, re.IGNORECASE)
     if acc_match:
         metadata["account_number"] = acc_match.group(1)
         
@@ -2622,7 +2622,7 @@ def _parse_canara(pdf, first_page_text):
     if cust_match:
         metadata["customer_id"] = cust_match.group(1)
         
-    type_match = re.search(r"Product Name\s*:\s*([^\n]+)", first_page_text, re.IGNORECASE)
+    type_match = re.search(r"(?:Product Name|Account Type)\s*:\s*([^\n]+)", first_page_text, re.IGNORECASE)
     if type_match:
         metadata["account_type"] = type_match.group(1).strip()
         
@@ -2630,28 +2630,87 @@ def _parse_canara(pdf, first_page_text):
     if period_match:
         metadata["statement_period"] = period_match.group(1).replace("To", "to").strip()
         
-    name_match = re.search(r"Customer Name\s*:\s*([^\n]+)", first_page_text, re.IGNORECASE)
+    name_match = re.search(r"(?:Customer Name|Account Title|Name)\s*:\s*([^\n]+)", first_page_text, re.IGNORECASE)
     if name_match:
         metadata["holder_name"] = name_match.group(1).strip()
         
-    col_bounds = [75.0, 125.0, 180.0, 255.0, 360.0, 410.0, 510.0]
+    col_bounds = None
 
     for page_idx, page in enumerate(pdf.pages):
         words = page.extract_words()
         if not words:
             continue
             
-        header_y = None
+        all_lines = defaultdict(list)
         for w in words:
-            if w['text'].lower() == "description":
-                header_y = w['top']
+            found = False
+            for existing_top in all_lines.keys():
+                if abs(w['top'] - existing_top) < 4.0:
+                    all_lines[existing_top].append(w)
+                    found = True
+                    break
+            if not found:
+                all_lines[w['top']].append(w)
+                
+        sorted_all_tops = sorted(all_lines.keys())
+        
+        header_y = None
+        header_words = []
+        for top in sorted_all_tops:
+            line_w = all_lines[top]
+            line_t = " ".join([w['text'].lower() for w in line_w])
+            if any(k in line_t for k in ["description", "particulars", "narration"]) and any(k in line_t for k in ["withdraw", "deposit", "balance", "debit", "credit"]):
+                header_y = top
+                header_words = line_w
                 break
+                
+        if header_words and col_bounds is None:
+            x_date = 20.0
+            x_val = 80.0
+            x_branch = 130.0
+            x_ref = 190.0
+            x_desc = 260.0
+            x_wdl = 360.0
+            x_dep = 430.0
+            x_bal = 500.0
+            
+            for w in header_words:
+                txt = w['text'].lower()
+                if "trans" in txt or ("date" in txt and x_date == 20.0):
+                    x_date = w['x0']
+                elif "value" in txt:
+                    x_val = w['x0']
+                elif "branch" in txt:
+                    x_branch = w['x0']
+                elif "ref" in txt or "chq" in txt:
+                    x_ref = w['x0']
+                elif "description" in txt or "particulars" in txt or "narration" in txt:
+                    x_desc = w['x0']
+                elif "withdraw" in txt or "debit" in txt:
+                    x_wdl = w['x0']
+                elif "deposit" in txt or "credit" in txt:
+                    x_dep = w['x0']
+                elif "balance" in txt:
+                    x_bal = w['x0']
+                    
+            col_bounds = [
+                (x_date + x_val)/2 if x_val > x_date else x_date + 40,
+                (x_val + x_branch)/2 if x_branch > x_val else x_val + 40,
+                (x_branch + x_ref)/2 if x_ref > x_branch else x_branch + 40,
+                (x_ref + x_desc)/2 if x_desc > x_ref else x_ref + 60,
+                (x_desc + x_wdl)/2 if x_wdl > x_desc else x_desc + 100,
+                (x_wdl + x_dep)/2 if x_dep > x_wdl else x_wdl + 50,
+                (x_dep + x_bal)/2 if x_bal > x_dep else x_dep + 50,
+            ]
+            
+        if col_bounds is None:
+            col_bounds = [75.0, 125.0, 180.0, 255.0, 360.0, 410.0, 510.0]
+            
         if header_y is None:
-            header_y = 100.0 if page_idx > 0 else 426.0
+            header_y = 50.0 if page_idx > 0 else 400.0
             
         table_words = [w for w in words if w['top'] > header_y + 10]
         
-        # Group words by line
         lines_dict = defaultdict(list)
         for w in table_words:
             found = False
@@ -2671,7 +2730,7 @@ def _parse_canara(pdf, first_page_text):
             line_words.sort(key=lambda w: w['x0'])
             line_text = " ".join([w['text'] for w in line_words])
             
-            if "statement summary" in line_text.lower() or "end of statement" in line_text.lower():
+            if any(k in line_text.lower() for k in ["statement summary", "end of statement"]):
                 break
                 
             cols = [""] * 8
@@ -2710,7 +2769,7 @@ def _parse_canara(pdf, first_page_text):
                     transactions.append(current_tx)
                 current_tx = {
                     "txn_date": col0,
-                    "value_date": col1,
+                    "value_date": col1 if col1 else col0,
                     "particulars": desc,
                     "ref_no": col3,
                     "debit": col5,
