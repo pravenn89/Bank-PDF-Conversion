@@ -2630,7 +2630,11 @@ def _parse_canara(pdf, first_page_text):
     if period_match:
         metadata["statement_period"] = period_match.group(1).replace("To", "to").strip()
         
-    name_match = re.search(r"(?:Customer Name|Account Title|Name)\s*:\s*([^\n]+)", first_page_text, re.IGNORECASE)
+    name_match = re.search(r"Customer Name\s*:\s*([^\n]+)", first_page_text, re.IGNORECASE)
+    if not name_match:
+        name_match = re.search(r"Account Title\s*:\s*([^\n]+)", first_page_text, re.IGNORECASE)
+    if not name_match:
+        name_match = re.search(r"Holder Name\s*:\s*([^\n]+)", first_page_text, re.IGNORECASE)
     if name_match:
         metadata["holder_name"] = name_match.group(1).strip()
         
