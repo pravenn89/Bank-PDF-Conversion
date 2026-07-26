@@ -55,15 +55,17 @@ def parse_pdf(pdf_path, password=None):
         # Auto-detect bank type based on header metadata
         if "kotak" in header_area or "kkbk" in header_area:
             return _parse_kotak(pdf, first_page_text)
+        elif "detailed statement" in header_area and "txn posted date" in first_page_lower:
+            return _parse_icici(pdf, first_page_text)
         elif "dbs" in header_area or "dbss0in" in header_area:
             return _parse_dbs(pdf, first_page_text)
         elif "rbl" in header_area or "ratn0" in header_area:
             return _parse_rbl(pdf, first_page_text)
-        elif "hdfc" in header_area:
+        elif re.search(r"(?<![a-z])hdfc", header_area):
             return _parse_hdfc(pdf, first_page_text)
         elif "axis" in header_area or "utib" in header_area:
             return _parse_axis(pdf, first_page_text)
-        elif "icici" in header_area or "icic" in header_area or ("detailed statement" in header_area and "txn posted date" in first_page_lower):
+        elif "icici" in header_area or "icic" in header_area:
             return _parse_icici(pdf, first_page_text)
         elif "indusind" in header_area or "indb" in header_area:
             return _parse_indusind(pdf, first_page_text)
@@ -87,15 +89,17 @@ def parse_pdf(pdf_path, password=None):
         # Fallbacks in case branding is further down on Page 1
         if "kotak" in first_page_lower or "kkbk" in first_page_lower:
             return _parse_kotak(pdf, first_page_text)
+        elif "detailed statement" in first_page_lower and "txn posted date" in first_page_lower:
+            return _parse_icici(pdf, first_page_text)
         elif "dbs" in first_page_lower or "dbss0in" in first_page_lower:
             return _parse_dbs(pdf, first_page_text)
         elif "rbl" in first_page_lower or "ratn0" in first_page_lower:
             return _parse_rbl(pdf, first_page_text)
-        elif "hdfc bank" in first_page_lower or "hdfcbank" in first_page_lower:
+        elif re.search(r"(?<![a-z])hdfc", first_page_lower):
             return _parse_hdfc(pdf, first_page_text)
         elif "axis" in first_page_lower or "utib" in first_page_lower:
             return _parse_axis(pdf, first_page_text)
-        elif "icici" in first_page_lower or "icic" in first_page_lower or ("detailed statement" in first_page_lower and "txn posted date" in first_page_lower):
+        elif "icici" in first_page_lower or "icic" in first_page_lower:
             return _parse_icici(pdf, first_page_text)
         elif "indusind" in first_page_lower or "indb" in first_page_lower:
             return _parse_indusind(pdf, first_page_text)
