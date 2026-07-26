@@ -447,5 +447,30 @@ class TestSBINewStatement(unittest.TestCase):
     def test_transaction_count(self):
         self.assertEqual(len(self.transactions), 1916)
 
+class TestICIDetailedStatement(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\798c510d-3f38-4457-8c71-0896ee2415ef\.user_uploaded\media__1785065548665.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "080205019882")
+        self.assertEqual(self.metadata.get("holder_name"), "CS EDUCATION AND RESEARCH FOUNDATION")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 596)
+
+    def test_first_and_last_transactions(self):
+        first_tx = self.transactions[0]
+        self.assertEqual(first_tx["ref_no"], "S74208993")
+        self.assertEqual(first_tx["credit"], "22,500.00")
+        self.assertEqual(first_tx["balance"], "3,41,192.36")
+        
+        last_tx = self.transactions[-1]
+        self.assertEqual(last_tx["ref_no"], "S83363498")
+        self.assertEqual(last_tx["credit"], "3,500.00")
+        self.assertEqual(last_tx["balance"], "1,60,300.39")
+
 if __name__ == '__main__':
     unittest.main()

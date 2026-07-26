@@ -63,7 +63,7 @@ def parse_pdf(pdf_path, password=None):
             return _parse_hdfc(pdf, first_page_text)
         elif "axis" in header_area or "utib" in header_area:
             return _parse_axis(pdf, first_page_text)
-        elif "icici" in header_area:
+        elif "icici" in header_area or "icic" in header_area or ("detailed statement" in header_area and "txn posted date" in first_page_lower):
             return _parse_icici(pdf, first_page_text)
         elif "indusind" in header_area or "indb" in header_area:
             return _parse_indusind(pdf, first_page_text)
@@ -95,7 +95,7 @@ def parse_pdf(pdf_path, password=None):
             return _parse_hdfc(pdf, first_page_text)
         elif "axis" in first_page_lower or "utib" in first_page_lower:
             return _parse_axis(pdf, first_page_text)
-        elif "icici" in first_page_lower:
+        elif "icici" in first_page_lower or "icic" in first_page_lower or ("detailed statement" in first_page_lower and "txn posted date" in first_page_lower):
             return _parse_icici(pdf, first_page_text)
         elif "indusind" in first_page_lower or "indb" in first_page_lower:
             return _parse_indusind(pdf, first_page_text)
@@ -502,7 +502,10 @@ def _parse_indusind(pdf, first_page_text):
     return metadata, transactions
 
 def _parse_icici(pdf, first_page_text):
-    if "s no." in first_page_text.lower() and "cheque number" in first_page_text.lower():
+    text_lower = (first_page_text or "").lower()
+    if "detailed statement" in text_lower or "txn posted date" in text_lower or "transaction id" in text_lower or "chequeno." in text_lower:
+        return _parse_icici_detailed(pdf, first_page_text)
+    if "s no." in text_lower and "cheque number" in text_lower:
         return _parse_icici_new(pdf, first_page_text)
         
     transactions = []
@@ -3188,5 +3191,108 @@ def _parse_sbi_new(pdf, first_page_text):
         if current_tx:
             transactions.append(current_tx)
             current_tx = None
+
+    return metadata, transactions
+
+def _parse_icici_detailed(pdf, first_page_text):
+    transactions = []
+    metadata = {
+        "account_number": "",
+        "customer_id": "",
+        "account_type": "Corporate",
+        "statement_date": "",
+        "statement_period": "",
+        "holder_name": ""
+    }
+    
+    text_p1 = first_page_text or ""
+    header_match = re.search(r"Transactions List - -([^(]+)\((?:INR|USD|EUR)\) - (\w+)", text_p1)
+    if header_match:
+        metadata["holder_name"] = header_match.group(1).strip()
+        metadata["account_number"] = header_match.group(2).strip()
+    else:
+        acc_m = re.search(r"(\d{12})", text_p1)
+        if acc_m:
+            metadata["account_number"] = acc_m.group(1)
+
+    col_bounds = [35.0, 105.0, 175.0, 330.0, 400.0, 695.0, 730.0, 825.0]
+
+    for page_idx, page in enumerate(pdf.pages):
+        words = page.extract_words()
+        if not words:
+            continue
+            
+        header_y = 265.0 if page_idx == 0 else 50.0
+        table_words = [w for w in words if w['top'] > header_y]
+        
+        no_words = [w for w in table_words if w['x1'] < col_bounds[0] and w['text'].isdigit()]
+        no_words.sort(key=lambda w: w['top'])
+        
+        if not no_words:
+            continue
+            
+        for i, nw in enumerate(no_words):
+            sno = nw['text']
+            top_bound = (no_words[i-1]['top'] + nw['top'])/2 if i > 0 else header_y
+            bot_bound = (nw['top'] + no_words[i+1]['top'])/2 if i < len(no_words) - 1 else page.height - 30.0
+            
+            box_words = [w for w in table_words if top_bound <= w['top'] < bot_bound]
+            
+            cols = [""] * 9
+            for w in box_words:
+                x_mid = (w['x0'] + w['x1']) / 2
+                if x_mid < col_bounds[0]:
+                    cols[0] += (" " if cols[0] else "") + w['text']
+                elif col_bounds[0] <= x_mid < col_bounds[1]:
+                    cols[1] += (" " if cols[1] else "") + w['text']
+                elif col_bounds[1] <= x_mid < col_bounds[2]:
+                    cols[2] += (" " if cols[2] else "") + w['text']
+                elif col_bounds[2] <= x_mid < col_bounds[3]:
+                    cols[3] += (" " if cols[3] else "") + w['text']
+                elif col_bounds[3] <= x_mid < col_bounds[4]:
+                    cols[4] += (" " if cols[4] else "") + w['text']
+                elif col_bounds[4] <= x_mid < col_bounds[5]:
+                    cols[5] += (" " if cols[5] else "") + w['text']
+                elif col_bounds[5] <= x_mid < col_bounds[6]:
+                    cols[6] += (" " if cols[6] else "") + w['text']
+                elif col_bounds[6] <= x_mid < col_bounds[7]:
+                    cols[7] += (" " if cols[7] else "") + w['text']
+                elif col_bounds[7] <= x_mid:
+                    cols[8] += (" " if cols[8] else "") + w['text']
+                    
+            c_txnid = cols[1].strip()
+            c_valdt = cols[2].strip()
+            c_postdt = cols[3].strip()
+            c_desc = cols[5].strip()
+            c_crdr = cols[6].strip().upper()
+            c_amt = cols[7].strip()
+            c_bal = cols[8].strip()
+            
+            if "description" in c_desc.lower():
+                c_desc = re.sub(r"(?i)description", "", c_desc).strip()
+            if "transaction" in c_txnid.lower():
+                c_txnid = re.sub(r"(?i)transaction", "", c_txnid).strip()
+            if "amount" in c_amt.lower():
+                c_amt = re.sub(r"(?i)amount.*", "", c_amt).strip()
+            if "balance" in c_bal.lower():
+                c_bal = re.sub(r"(?i)balance.*", "", c_bal).strip()
+                
+            post_date = c_postdt.split()[0] if c_postdt else c_valdt
+            deb = c_amt if "DR" in c_crdr else ""
+            cred = c_amt if "CR" in c_crdr else ""
+            
+            transactions.append({
+                "sno": sno,
+                "txn_date": post_date,
+                "value_date": c_valdt,
+                "particulars": c_desc,
+                "ref_no": c_txnid,
+                "debit": deb,
+                "credit": cred,
+                "balance": c_bal
+            })
+
+    if transactions:
+        metadata["statement_period"] = f"{transactions[0]['txn_date']} to {transactions[-1]['txn_date']}"
 
     return metadata, transactions
