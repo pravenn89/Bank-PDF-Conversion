@@ -69,6 +69,7 @@ with st.sidebar:
     - Canara Bank
     - DBS Bank
     - RBL Bank
+    - South Indian Bank (SIB)
     - Axis Bank *(scanned check)*
     """)
     st.info("💡 **Scanned PDF check**: Axis and scanned SBI statements will trigger a scanned document warning.")
