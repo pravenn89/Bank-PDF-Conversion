@@ -56,6 +56,8 @@ def parse_pdf(pdf_path, password=None):
         # Auto-detect bank type based on header metadata
         if "kotak" in header_area or "kkbk" in header_area:
             return _parse_kotak(pdf, first_page_text)
+        elif "statement between" in header_area or "caesc" in header_area:
+            return _parse_axis(pdf, first_page_text)
         elif "idfc" in header_area or "idfb0" in header_area:
             return _parse_idfc(pdf, first_page_text)
         elif "south indian" in header_area or "sibl0" in header_area:
@@ -94,6 +96,8 @@ def parse_pdf(pdf_path, password=None):
         # Fallbacks in case branding is further down on Page 1
         if "kotak" in first_page_lower or "kkbk" in first_page_lower:
             return _parse_kotak(pdf, first_page_text)
+        elif "statement between" in first_page_lower or "caesc" in first_page_lower:
+            return _parse_axis(pdf, first_page_text)
         elif "idfc" in first_page_lower or "idfb0" in first_page_lower:
             return _parse_idfc(pdf, first_page_text)
         elif "south indian" in first_page_lower or "sibl0" in first_page_lower:
@@ -3470,13 +3474,17 @@ def _parse_axis_corporate(pdf, first_page_text):
     type_m = re.search(r"SCHEME CODE\s*:\s*([^\n]+)", text_p1, re.IGNORECASE)
     if type_m:
         t_val = type_m.group(1).strip()
-        if "ESCROW" in t_val and "ARRANGEMENTS" not in t_val and "ARRANGEMENTS" in text_p1:
-            t_val += " ARRANGEMENTS"
+        if "ESCROW" in text_p1 and "ARRANGEMENTS" in text_p1:
+            t_val = "CA - CURRENT A/C FOR ESCROW ARRANGEMENTS"
         metadata["account_type"] = t_val
         
     name_m = re.search(r"((?:MS\.|MR\.|MRS\.|M/S\.)\s+[^\n]+)", text_p1, re.IGNORECASE)
     if name_m:
-        metadata["holder_name"] = name_m.group(1).replace("( 723 )", "").strip()
+        h_name = name_m.group(1).strip()
+        if "SCHEME CODE" in h_name:
+            h_name = h_name.split("SCHEME CODE")[0].strip()
+        h_name = h_name.replace("( 723 )", "").strip()
+        metadata["holder_name"] = h_name
 
     col_bounds = [68.0, 120.0, 310.0, 350.0, 415.0, 440.0, 505.0]
 
