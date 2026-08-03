@@ -3459,11 +3459,14 @@ def _parse_axis_corporate(pdf, first_page_text):
         "statement_period": "",
         "holder_name": ""
     }
-    date_regex = re.compile(r"^\d{2}/\d{2}/\d{4}$")
+    date_regex_slash = re.compile(r"^\d{2}/\d{2}/\d{4}$")
+    date_regex_dash = re.compile(r"^\d{2}-\d{2}-\d{4}$")
     
     text_p1 = first_page_text or ""
     
     acc_m = re.search(r"FOR A/C:\s*(\w+)", text_p1, re.IGNORECASE)
+    if not acc_m:
+        acc_m = re.search(r"Statement of Axis Account No:\s*(\w+)", text_p1, re.IGNORECASE)
     if acc_m:
         metadata["account_number"] = acc_m.group(1)
         
@@ -3472,6 +3475,8 @@ def _parse_axis_corporate(pdf, first_page_text):
         metadata["customer_id"] = cust_m.group(1)
         
     type_m = re.search(r"SCHEME CODE\s*:\s*([^\n]+)", text_p1, re.IGNORECASE)
+    if not type_m:
+        type_m = re.search(r"Scheme:\s*([^\n]+)", text_p1, re.IGNORECASE)
     if type_m:
         t_val = type_m.group(1).strip()
         if "ESCROW" in text_p1 and "ARRANGEMENTS" in text_p1:
@@ -3485,8 +3490,12 @@ def _parse_axis_corporate(pdf, first_page_text):
             h_name = h_name.split("SCHEME CODE")[0].strip()
         h_name = h_name.replace("( 723 )", "").strip()
         metadata["holder_name"] = h_name
+    elif lines := [l.strip() for l in text_p1.split("\n") if l.strip()]:
+        h_name = lines[0].replace("-ESCROW ACCOUNT", "").replace("ESCROW ACCOUNT", "").strip()
+        metadata["holder_name"] = h_name
 
-    col_bounds = [68.0, 120.0, 310.0, 350.0, 415.0, 440.0, 505.0]
+    col_bounds_slash = [68.0, 120.0, 310.0, 350.0, 415.0, 440.0, 505.0]
+    col_bounds_dash = [85.0, 135.0, 320.0, 380.0, 450.0, 535.0]
 
     for page_idx, page in enumerate(pdf.pages):
         words = page.extract_words()
@@ -3495,11 +3504,11 @@ def _parse_axis_corporate(pdf, first_page_text):
             
         header_y = None
         for w in words:
-            if w['text'].lower() == "details" or w['text'].lower() == "tran":
+            if w['text'].lower() == "particulars":
                 header_y = w['top']
                 break
         if header_y is None:
-            header_y = 210.0
+            header_y = 200.0
             
         table_words = [w for w in words if w['top'] > header_y + 10]
         
@@ -3516,71 +3525,149 @@ def _parse_axis_corporate(pdf, first_page_text):
                 
         sorted_tops = sorted(lines_dict.keys())
         current_tx = None
+        pending_desc = ""
         
         for top in sorted_tops:
             line_words = lines_dict[top]
             line_words.sort(key=lambda w: w['x0'])
             line_text = " ".join([w['text'] for w in line_words])
             
-            if any(k in line_text.lower() for k in ["closing balance", "transaction total", "legends used", "end of statement", "charge statement"]):
-                break
-                
-            cols = [""] * 8
-            for w in line_words:
-                x_mid = (w['x0'] + w['x1']) / 2
-                if x_mid < col_bounds[0]:
-                    cols[0] += (" " if cols[0] else "") + w['text']
-                elif col_bounds[0] <= x_mid < col_bounds[1]:
-                    cols[1] += (" " if cols[1] else "") + w['text']
-                elif col_bounds[1] <= x_mid < col_bounds[2]:
-                    cols[2] += (" " if cols[2] else "") + w['text']
-                elif col_bounds[2] <= x_mid < col_bounds[3]:
-                    cols[3] += (" " if cols[3] else "") + w['text']
-                elif col_bounds[3] <= x_mid < col_bounds[4]:
-                    cols[4] += (" " if cols[4] else "") + w['text']
-                elif col_bounds[4] <= x_mid < col_bounds[5]:
-                    cols[5] += (" " if cols[5] else "") + w['text']
-                elif col_bounds[5] <= x_mid < col_bounds[6]:
-                    cols[6] += (" " if cols[6] else "") + w['text']
-                elif col_bounds[6] <= x_mid:
-                    cols[7] += (" " if cols[7] else "") + w['text']
-                    
-            c_date = clean_val(cols[0])
-            c_valdt = clean_val(cols[1])
-            c_desc = clean_val(cols[2])
-            c_chq = clean_val(cols[3])
-            c_amt = clean_val(cols[4])
-            c_crdr = clean_val(cols[5]).upper()
-            c_bal = clean_val(cols[6])
-            
-            if c_date and date_regex.match(c_date):
+            if any(k in line_text.lower() for k in ["closing balance", "transaction total", "legends used", "end of statement", "charge statement", "unless the constituent"]):
                 if current_tx:
                     transactions.append(current_tx)
-                    
-                deb = c_amt if c_crdr == "DR" else ""
-                cred = c_amt if c_crdr == "CR" else ""
+                    current_tx = None
+                pending_desc = ""
+                break
                 
-                current_tx = {
-                    "txn_date": c_date,
-                    "value_date": c_valdt if c_valdt else c_date,
-                    "particulars": c_desc,
-                    "ref_no": c_chq,
-                    "debit": deb,
-                    "credit": cred,
-                    "balance": c_bal
-                }
-            elif current_tx:
-                if c_desc:
-                    current_tx["particulars"] += (" " if current_tx["particulars"] else "") + c_desc
-                if c_chq:
-                    current_tx["ref_no"] += (" " if current_tx["ref_no"] else "") + c_chq
-                if c_amt and not (current_tx["debit"] or current_tx["credit"]):
-                    if c_crdr == "DR":
-                        current_tx["debit"] = c_amt
-                    elif c_crdr == "CR":
-                        current_tx["credit"] = c_amt
-                if c_bal:
-                    current_tx["balance"] = c_bal
+            c_first_word = line_words[0]['text'].strip() if line_words else ""
+            is_dash_format = bool(date_regex_dash.match(c_first_word))
+            col_bounds = col_bounds_dash if is_dash_format else col_bounds_slash
+            
+            if is_dash_format:
+                cols = [""] * 7
+                for w in line_words:
+                    x_mid = (w['x0'] + w['x1']) / 2
+                    if x_mid < col_bounds[0]:
+                        cols[0] += (" " if cols[0] else "") + w['text']
+                    elif col_bounds[0] <= x_mid < col_bounds[1]:
+                        cols[1] += (" " if cols[1] else "") + w['text']
+                    elif col_bounds[1] <= x_mid < col_bounds[2]:
+                        cols[2] += (" " if cols[2] else "") + w['text']
+                    elif col_bounds[2] <= x_mid < col_bounds[3]:
+                        cols[3] += (" " if cols[3] else "") + w['text']
+                    elif col_bounds[3] <= x_mid < col_bounds[4]:
+                        cols[4] += (" " if cols[4] else "") + w['text']
+                    elif col_bounds[4] <= x_mid < col_bounds[5]:
+                        cols[5] += (" " if cols[5] else "") + w['text']
+                    elif col_bounds[5] <= x_mid:
+                        cols[6] += (" " if cols[6] else "") + w['text']
+                        
+                c_date = clean_val(cols[0])
+                c_chq = clean_val(cols[1])
+                c_desc = clean_val(cols[2])
+                c_wdl = clean_val(cols[3])
+                c_dep = clean_val(cols[4])
+                c_bal = clean_val(cols[5])
+                
+                if "opening balance" in line_text.lower():
+                    continue
+                    
+                if date_regex_dash.match(c_date):
+                    if current_tx:
+                        transactions.append(current_tx)
+                        
+                    full_desc = (pending_desc + " " + c_desc).strip() if pending_desc else c_desc
+                    pending_desc = ""
+                    
+                    current_tx = {
+                        "txn_date": c_date,
+                        "value_date": c_date,
+                        "particulars": full_desc,
+                        "ref_no": c_chq,
+                        "debit": c_wdl,
+                        "credit": c_dep,
+                        "balance": c_bal
+                    }
+                    if c_wdl or c_dep or c_bal:
+                        transactions.append(current_tx)
+                        current_tx = None
+                elif current_tx:
+                    if c_desc:
+                        current_tx["particulars"] += (" " if current_tx["particulars"] else "") + c_desc
+                    if c_chq:
+                        current_tx["ref_no"] += (" " if current_tx["ref_no"] else "") + c_chq
+                    if c_wdl:
+                        current_tx["debit"] = c_wdl
+                    if c_dep:
+                        current_tx["credit"] = c_dep
+                    if c_bal:
+                        current_tx["balance"] = c_bal
+                    if c_wdl or c_dep or c_bal:
+                        transactions.append(current_tx)
+                        current_tx = None
+                else:
+                    if c_desc:
+                        pending_desc += (" " if pending_desc else "") + c_desc
+            else:
+                cols = [""] * 8
+                for w in line_words:
+                    x_mid = (w['x0'] + w['x1']) / 2
+                    if x_mid < col_bounds[0]:
+                        cols[0] += (" " if cols[0] else "") + w['text']
+                    elif col_bounds[0] <= x_mid < col_bounds[1]:
+                        cols[1] += (" " if cols[1] else "") + w['text']
+                    elif col_bounds[1] <= x_mid < col_bounds[2]:
+                        cols[2] += (" " if cols[2] else "") + w['text']
+                    elif col_bounds[2] <= x_mid < col_bounds[3]:
+                        cols[3] += (" " if cols[3] else "") + w['text']
+                    elif col_bounds[3] <= x_mid < col_bounds[4]:
+                        cols[4] += (" " if cols[4] else "") + w['text']
+                    elif col_bounds[4] <= x_mid < col_bounds[5]:
+                        cols[5] += (" " if cols[5] else "") + w['text']
+                    elif col_bounds[5] <= x_mid < col_bounds[6]:
+                        cols[6] += (" " if cols[6] else "") + w['text']
+                    elif col_bounds[6] <= x_mid:
+                        cols[7] += (" " if cols[7] else "") + w['text']
+                        
+                c_date = clean_val(cols[0])
+                c_valdt = clean_val(cols[1])
+                c_desc = clean_val(cols[2])
+                c_chq = clean_val(cols[3])
+                c_amt = clean_val(cols[4])
+                c_crdr = clean_val(cols[5]).upper()
+                c_bal = clean_val(cols[6])
+                
+                if "opening balance" in line_text.lower():
+                    continue
+                    
+                if c_date and date_regex_slash.match(c_date):
+                    if current_tx:
+                        transactions.append(current_tx)
+                        
+                    deb = c_amt if c_crdr == "DR" else ""
+                    cred = c_amt if c_crdr == "CR" else ""
+                    
+                    current_tx = {
+                        "txn_date": c_date,
+                        "value_date": c_valdt if c_valdt else c_date,
+                        "particulars": c_desc,
+                        "ref_no": c_chq,
+                        "debit": deb,
+                        "credit": cred,
+                        "balance": c_bal
+                    }
+                elif current_tx:
+                    if c_desc:
+                        current_tx["particulars"] += (" " if current_tx["particulars"] else "") + c_desc
+                    if c_chq:
+                        current_tx["ref_no"] += (" " if current_tx["ref_no"] else "") + c_chq
+                    if c_amt and not (current_tx["debit"] or current_tx["credit"]):
+                        if c_crdr == "DR":
+                            current_tx["debit"] = c_amt
+                        elif c_crdr == "CR":
+                            current_tx["credit"] = c_amt
+                    if c_bal:
+                        current_tx["balance"] = c_bal
 
         if current_tx:
             transactions.append(current_tx)

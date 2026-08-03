@@ -649,5 +649,32 @@ class TestAxisCorporateStatement3(unittest.TestCase):
         self.assertEqual(last_tx["debit"], "1157162.00")
         self.assertEqual(last_tx["balance"], "279918.00")
 
+class TestAxisCorporateStatement4(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\798c510d-3f38-4457-8c71-0896ee2415ef\.user_uploaded\media__1785744902013.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "921020001896963")
+        self.assertEqual(self.metadata.get("customer_id"), "903901942")
+        self.assertEqual(self.metadata.get("account_type"), "CA - CURRENT A/C FOR ESCROW ARRANGEMENTS")
+        self.assertEqual(self.metadata.get("holder_name"), "VENKATA BEVERAGES PRIVATE LIMITED")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 18)
+
+    def test_first_and_last_transactions(self):
+        first_tx = self.transactions[0]
+        self.assertEqual(first_tx["txn_date"], "19-02-2021")
+        self.assertEqual(first_tx["credit"], "29400000.00")
+        self.assertEqual(first_tx["balance"], "29400000.00")
+        
+        last_tx = self.transactions[-1]
+        self.assertEqual(last_tx["txn_date"], "29-10-2022")
+        self.assertEqual(last_tx["debit"], "1157162.00")
+        self.assertEqual(last_tx["balance"], "279918.00")
+
 if __name__ == '__main__':
     unittest.main()
