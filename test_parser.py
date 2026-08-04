@@ -459,7 +459,7 @@ class TestICIDetailedStatement(unittest.TestCase):
         self.assertEqual(self.metadata.get("holder_name"), "CS EDUCATION AND RESEARCH FOUNDATION")
 
     def test_transaction_count(self):
-        self.assertEqual(len(self.transactions), 596)
+        self.assertEqual(len(self.transactions), 626)
 
     def test_first_and_last_transactions(self):
         first_tx = self.transactions[0]
@@ -484,7 +484,7 @@ class TestICIDetailedStatement2(unittest.TestCase):
         self.assertEqual(self.metadata.get("holder_name"), "CS EDUCATION AND RESEARCH FOUNDATION")
 
     def test_transaction_count(self):
-        self.assertEqual(len(self.transactions), 571)
+        self.assertEqual(len(self.transactions), 600)
 
     def test_first_and_last_transactions(self):
         first_tx = self.transactions[0]

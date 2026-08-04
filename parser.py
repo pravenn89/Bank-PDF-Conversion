@@ -1388,10 +1388,12 @@ def _parse_indian_bank(pdf, first_page_text):
                 header_line_words = line_words
                 break
         
-        if header_y is None:
-            header_y = 380.0 if page_idx == 0 else 100.0
+        if header_y is not None:
+            min_y = header_y + 10
+        else:
+            min_y = 0.0 if page_idx > 0 else 340.0
             
-        table_words = [w for w in words if w['top'] > header_y + 10]
+        table_words = [w for w in words if w['top'] >= min_y]
         
         # Calibrate columns based on found headers
         x_date = 89.0
@@ -1722,10 +1724,12 @@ def _parse_kvb(pdf, first_page_text):
                 header_line_words = line_words
                 break
         
-        if header_y is None:
-            header_y = 340.0 if page_idx == 0 else 100.0
+        if header_y is not None:
+            min_y = header_y + 10
+        else:
+            min_y = 0.0 if page_idx > 0 else 340.0
             
-        table_words = [w for w in words if w['top'] > header_y + 10]
+        table_words = [w for w in words if w['top'] >= min_y]
         
         x_txn = 44.0
         x_val = 103.0
@@ -2736,10 +2740,12 @@ def _parse_canara(pdf, first_page_text):
         if col_bounds is None:
             col_bounds = [75.0, 125.0, 180.0, 255.0, 360.0, 410.0, 510.0]
             
-        if header_y is None:
-            header_y = 50.0 if page_idx > 0 else 400.0
+        if header_y is not None:
+            min_y = header_y + 10
+        else:
+            min_y = 0.0 if page_idx > 0 else 400.0
             
-        table_words = [w for w in words if w['top'] > header_y + 10]
+        table_words = [w for w in words if w['top'] >= min_y]
         
         lines_dict = defaultdict(list)
         for w in table_words:
@@ -3245,8 +3251,8 @@ def _parse_icici_detailed(pdf, first_page_text):
         if not words:
             continue
             
-        header_y = 265.0 if page_idx == 0 else 50.0
-        table_words = [w for w in words if w['top'] > header_y]
+        header_y = 265.0 if page_idx == 0 else 0.0
+        table_words = [w for w in words if w['top'] >= header_y]
         
         no_words = [w for w in table_words if w['x1'] < col_bounds[0] and w['text'].isdigit()]
         no_words.sort(key=lambda w: w['top'])
