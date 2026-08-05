@@ -2078,12 +2078,143 @@ def _parse_scb(pdf, first_page_text):
         
     return metadata, transactions
 
+def _parse_sbi_statement_2(pdf, first_page_text):
+    transactions = []
+    metadata = {
+        "account_number": "",
+        "customer_id": "",
+        "account_type": "",
+        "statement_date": "",
+        "statement_period": "",
+        "holder_name": ""
+    }
+    date_regex = re.compile(r"^\d{2}-\d{2}-\d{4}$")
+
+    text_p1 = first_page_text or ""
+    
+    acc_m = re.search(r"Account No\s*:\s*(\w+)", text_p1, re.IGNORECASE)
+    if acc_m:
+        metadata["account_number"] = acc_m.group(1)
+        
+    cif_m = re.search(r"CIF No\s*:\s*(\w+)", text_p1, re.IGNORECASE)
+    if cif_m:
+        metadata["customer_id"] = cif_m.group(1)
+        
+    type_m = re.search(r"Product\s*:\s*([^\n]+)", text_p1, re.IGNORECASE)
+    if type_m:
+        metadata["account_type"] = type_m.group(1).strip()
+        
+    period_m = re.search(r"Statement From\s*:\s*([\d-]+)\s+To\s+([\d-]+)", text_p1, re.IGNORECASE)
+    if period_m:
+        metadata["statement_period"] = f"{period_m.group(1)} to {period_m.group(2)}"
+        
+    for line in text_p1.split("\n"):
+        line_clean = line.strip()
+        if line_clean.startswith(("Mr.", "Ms.", "Mrs.", "M/S.", "MR.", "MS.", "MRS.")):
+            metadata["holder_name"] = line_clean
+            break
+
+    col_bounds = [75.0, 135.0, 290.0, 370.0, 440.0, 510.0]
+
+    for page_idx, page in enumerate(pdf.pages):
+        words = page.extract_words()
+        if not words:
+            continue
+            
+        header_y = None
+        for w in words:
+            if w['text'].lower() == "description":
+                header_y = w['top']
+                break
+        if header_y is None:
+            header_y = 30.0 if page_idx > 0 else 360.0
+            
+        table_words = [w for w in words if w['top'] > header_y + 5]
+        
+        date_tops = []
+        for w in table_words:
+            if w['x0'] < col_bounds[0] and date_regex.match(w['text'].strip()):
+                if not any(abs(w['top'] - dt) < 4.0 for dt in date_tops):
+                    date_tops.append(w['top'])
+                    
+        date_tops.sort()
+        
+        for d_top in date_tops:
+            tx_words = [w for w in table_words if abs(w['top'] - d_top) <= 8.0]
+            
+            lines_dict = defaultdict(list)
+            for w in tx_words:
+                found = False
+                for existing_top in lines_dict.keys():
+                    if abs(w['top'] - existing_top) < 2.5:
+                        lines_dict[existing_top].append(w)
+                        found = True
+                        break
+                if not found:
+                    lines_dict[w['top']].append(w)
+                    
+            sorted_tops = sorted(lines_dict.keys())
+            
+            cols = [""] * 7
+            for top in sorted_tops:
+                line_words = lines_dict[top]
+                line_words.sort(key=lambda w: w['x0'])
+                for w in line_words:
+                    x_mid = (w['x0'] + w['x1']) / 2
+                    if x_mid < col_bounds[0]:
+                        cols[0] += (" " if cols[0] else "") + w['text']
+                    elif col_bounds[0] <= x_mid < col_bounds[1]:
+                        cols[1] += (" " if cols[1] else "") + w['text']
+                    elif col_bounds[1] <= x_mid < col_bounds[2]:
+                        cols[2] += (" " if cols[2] else "") + w['text']
+                    elif col_bounds[2] <= x_mid < col_bounds[3]:
+                        cols[3] += (" " if cols[3] else "") + w['text']
+                    elif col_bounds[3] <= x_mid < col_bounds[4]:
+                        cols[4] += (" " if cols[4] else "") + w['text']
+                    elif col_bounds[4] <= x_mid < col_bounds[5]:
+                        cols[5] += (" " if cols[5] else "") + w['text']
+                    elif col_bounds[5] <= x_mid:
+                        cols[6] += (" " if cols[6] else "") + w['text']
+                        
+            c_post_date = clean_val(cols[0])
+            c_val_date = clean_val(cols[1])
+            c_desc = clean_val(cols[2])
+            c_chq = clean_val(cols[3])
+            c_deb = clean_val(cols[4])
+            c_cred = clean_val(cols[5])
+            c_bal = clean_val(cols[6]).replace("CR", "").replace("DR", "").strip()
+            
+            ref_num = c_chq
+            if not ref_num and "UPI/" in c_desc:
+                m = re.search(r"UPI/(?:DR|CR)/(\d+)", c_desc)
+                if m:
+                    ref_num = m.group(1)
+                    
+            post_dates = c_post_date.split()
+            p_date = post_dates[0] if post_dates else ""
+            val_dates = c_val_date.split()
+            v_date = val_dates[0] if val_dates else p_date
+            
+            transactions.append({
+                "txn_date": p_date,
+                "value_date": v_date,
+                "particulars": c_desc,
+                "ref_no": ref_num,
+                "debit": c_deb,
+                "credit": c_cred,
+                "balance": c_bal
+            })
+            
+    return metadata, transactions
+
 def _parse_sbi(pdf, first_page_text):
     text_check = (first_page_text or "").lower()
     if len(pdf.pages) > 1:
         text_check += (pdf.pages[1].extract_text() or "").lower()
     if "relationship summary" in text_check or "clear balance" in text_check or "my information" in text_check:
         return _parse_sbi_new(pdf, first_page_text)
+    if "post date" in text_check and "value date" in text_check and "cif no" in text_check:
+        return _parse_sbi_statement_2(pdf, first_page_text)
 
     transactions = []
     metadata = {
