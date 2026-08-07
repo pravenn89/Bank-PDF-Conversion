@@ -706,5 +706,34 @@ class TestSBIStatement2(unittest.TestCase):
         self.assertEqual(last_tx["debit"], "60.00")
         self.assertEqual(last_tx["balance"], "7,764.89")
 
+class TestICIDetailedStatement4(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\798c510d-3f38-4457-8c71-0896ee2415ef\.user_uploaded\media_1786089930196.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "168401000952")
+        self.assertEqual(self.metadata.get("customer_id"), "579078576")
+        self.assertEqual(self.metadata.get("account_type"), "SBA")
+        self.assertEqual(self.metadata.get("statement_period"), "01/04/2025 to 31/03/2026")
+        self.assertEqual(self.metadata.get("holder_name"), "FEDERATION OF ALL INDIA REALTORS AND AGENTS ASSOCIATIONS")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 162)
+
+    def test_first_and_last_transactions(self):
+        first_tx = self.transactions[0]
+        self.assertEqual(first_tx["txn_date"], "21/Jun/2025")
+        self.assertEqual(first_tx["particulars"], "CLG/PERUMAL/0001 94/HDF/20.06.2025")
+        self.assertEqual(first_tx["credit"], "50,000.00")
+        self.assertEqual(first_tx["balance"], "10,61,795.41")
+        
+        last_tx = self.transactions[-1]
+        self.assertEqual(last_tx["txn_date"], "31/Mar/2026")
+        self.assertEqual(last_tx["debit"], "25,000.00")
+        self.assertEqual(last_tx["balance"], "16,65,909.41")
+
 if __name__ == '__main__':
     unittest.main()

@@ -518,11 +518,121 @@ def _parse_indusind(pdf, first_page_text):
             
     return metadata, transactions
 
+def _parse_icici_detailed_4(pdf, first_page_text):
+    transactions = []
+    metadata = {
+        "account_number": "",
+        "customer_id": "",
+        "account_type": "",
+        "statement_date": "",
+        "statement_period": "",
+        "holder_name": ""
+    }
+
+    text_p1 = first_page_text or ""
+    
+    acc_m = re.search(r"A/C No\s*:\s*(\w+)", text_p1)
+    if acc_m:
+        metadata["account_number"] = acc_m.group(1)
+        
+    cust_m = re.search(r"Cust ID\s*:\s*(\w+)", text_p1)
+    if cust_m:
+        metadata["customer_id"] = cust_m.group(1)
+        
+    type_m = re.search(r"A/C Type\s*:\s*([^\n]+)", text_p1)
+    if type_m:
+        metadata["account_type"] = type_m.group(1).strip()
+        
+    period_m = re.search(r"Transaction Period\s*:\s*From\s+([\d/]+)\s+To\s+([\d/]+)", text_p1, re.IGNORECASE)
+    if period_m:
+        metadata["statement_period"] = f"{period_m.group(1)} to {period_m.group(2)}"
+        
+    name_m = re.search(r"Name:\s*([^\n]+)", text_p1)
+    if name_m:
+        raw_name = name_m.group(1)
+        raw_name = re.split(r"A/C Branch|Address", raw_name, flags=re.IGNORECASE)[0].strip()
+        if "AND AGENTS ASSOCIATIONS" in text_p1 and "AND AGENTS ASSOCIATIONS" not in raw_name:
+            raw_name += " AND AGENTS ASSOCIATIONS"
+        metadata["holder_name"] = raw_name
+
+    col_bounds = [105.0, 135.0, 172.0, 220.0, 270.0, 320.0, 390.0, 430.0, 470.0]
+
+    for page_idx, page in enumerate(pdf.pages):
+        words = page.extract_words()
+        if not words:
+            continue
+            
+        header_y = 328.0 if page_idx == 0 else 0.0
+        table_words = [w for w in words if w['top'] >= header_y]
+        
+        no_words = [w for w in table_words if w['x1'] < col_bounds[0] and w['text'].isdigit()]
+        no_words.sort(key=lambda w: w['top'])
+        
+        if not no_words:
+            continue
+            
+        for i, nw in enumerate(no_words):
+            sno = nw['text']
+            top_bound = (no_words[i-1]['top'] + nw['top'])/2 if i > 0 else header_y
+            bot_bound = (nw['top'] + no_words[i+1]['top'])/2 if i < len(no_words) - 1 else page.height - 25.0
+            
+            box_words = [w for w in table_words if top_bound <= w['top'] < bot_bound]
+            
+            rem_words = [w for w in box_words if col_bounds[5] <= (w['x0']+w['x1'])/2 < col_bounds[6]]
+            deb_words = [w for w in box_words if col_bounds[6] <= (w['x0']+w['x1'])/2 < col_bounds[7]]
+            cred_words = [w for w in box_words if col_bounds[7] <= (w['x0']+w['x1'])/2 < col_bounds[8]]
+            bal_words = [w for w in box_words if (w['x0']+w['x1'])/2 >= col_bounds[8]]
+            
+            val_words = [w for w in box_words if col_bounds[1] <= (w['x0']+w['x1'])/2 < col_bounds[2]]
+            tx_words = [w for w in box_words if col_bounds[2] <= (w['x0']+w['x1'])/2 < col_bounds[3]]
+            chq_words = [w for w in box_words if col_bounds[4] <= (w['x0']+w['x1'])/2 < col_bounds[5]]
+            
+            c_val_date = " ".join([w['text'] for w in sorted(val_words, key=lambda w: (w['top'], w['x0']))])
+            c_tx_date = " ".join([w['text'] for w in sorted(tx_words, key=lambda w: (w['top'], w['x0']))])
+            c_chq = " ".join([w['text'] for w in sorted(chq_words, key=lambda w: (w['top'], w['x0']))])
+            c_remarks = " ".join([w['text'] for w in sorted(rem_words, key=lambda w: (w['top'], w['x0']))])
+            c_deb = " ".join([w['text'] for w in sorted(deb_words, key=lambda w: (w['top'], w['x0']))])
+            c_cred = " ".join([w['text'] for w in sorted(cred_words, key=lambda w: (w['top'], w['x0']))])
+            c_bal = "".join([w['text'] for w in sorted(bal_words, key=lambda w: (w['top'], w['x0']))])
+            
+            if "Page" in c_remarks or "Legends" in c_remarks or "Opening" in c_remarks:
+                c_remarks = re.split(r"Page|Legends|Opening", c_remarks)[0].strip()
+            
+            ref_num = c_chq
+            if not ref_num and "UPI/" in c_remarks:
+                m = re.search(r"UPI/[^/]+/[^/]+/(\d+)", c_remarks)
+                if not m:
+                    m = re.search(r"UPI/(?:DR|CR)/(\d+)", c_remarks)
+                if m:
+                    ref_num = m.group(1)
+            if not ref_num and "IMPS/" in c_remarks:
+                m = re.search(r"IMPS/(\d+)", c_remarks)
+                if m:
+                    ref_num = m.group(1)
+
+            tx_date_final = c_tx_date.split()[0] if c_tx_date else c_val_date.split()[0]
+            val_date_final = c_val_date.split()[0] if c_val_date else tx_date_final
+            
+            transactions.append({
+                "sl_no": sno,
+                "txn_date": tx_date_final,
+                "value_date": val_date_final,
+                "particulars": c_remarks,
+                "ref_no": ref_num,
+                "debit": c_deb,
+                "credit": c_cred,
+                "balance": c_bal
+            })
+            
+    return metadata, transactions
+
 def _parse_icici(pdf, first_page_text):
     text_lower = (first_page_text or "").lower()
     if "statement of transactions from" in text_lower or ("s.no" in text_lower and "available balance" in text_lower):
         return _parse_icici_account_statement(pdf, first_page_text)
-    if "detailed statement" in text_lower or "txn posted date" in text_lower or "chequeno." in text_lower:
+    if re.search(r"detailed\s+statement", text_lower) or "txn posted date" in text_lower or "chequeno." in text_lower:
+        if re.search(r"\bsl\b", text_lower) and re.search(r"\btran\b", text_lower):
+            return _parse_icici_detailed_4(pdf, first_page_text)
         return _parse_icici_detailed(pdf, first_page_text)
     if "s no." in text_lower and "cheque number" in text_lower:
         return _parse_icici_new(pdf, first_page_text)
