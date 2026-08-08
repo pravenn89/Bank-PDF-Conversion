@@ -78,6 +78,8 @@ def parse_pdf(pdf_path, password=None):
             return _parse_indusind(pdf, first_page_text)
         elif "canara" in header_area or "cnrb" in header_area:
             return _parse_canara(pdf, first_page_text)
+        elif "city union" in header_area or "cityunionbank" in header_area or "cub" in header_area:
+            return _parse_city_union_bank(pdf, first_page_text)
         elif "union bank" in header_area or "unionbank" in header_area or "ubin" in header_area:
             return _parse_union_bank(pdf, first_page_text)
         elif "indian bank" in header_area or "indianbank" in header_area or "idib" in header_area:
@@ -96,6 +98,8 @@ def parse_pdf(pdf_path, password=None):
         # Fallbacks in case branding is further down on Page 1
         if "kotak" in first_page_lower or "kkbk" in first_page_lower:
             return _parse_kotak(pdf, first_page_text)
+        elif "city union" in first_page_lower or "cityunionbank" in first_page_lower:
+            return _parse_city_union_bank(pdf, first_page_text)
         elif "statement between" in first_page_lower or "caesc" in first_page_lower:
             return _parse_axis(pdf, first_page_text)
         elif "idfc" in first_page_lower or "idfb0" in first_page_lower:
@@ -1030,7 +1034,9 @@ def _parse_kotak(pdf, first_page_text):
 
 def _parse_axis(pdf, first_page_text):
     text_lower = (first_page_text or "").lower()
-    if "statement between" in text_lower or "tran date" in text_lower or "scheme code" in text_lower:
+    if "statement of axis account no" in text_lower or ("tran date" in text_lower and "init. br" in text_lower):
+        return _parse_axis_format2(pdf, first_page_text)
+    if "statement between" in text_lower or "scheme code" in text_lower:
         return _parse_axis_corporate(pdf, first_page_text)
 
     # Deducing standard parser for Axis Bank statement
@@ -4223,3 +4229,281 @@ def _parse_icici_account_statement(pdf, first_page_text):
         metadata["statement_period"] = f"{transactions[0]['txn_date']} to {transactions[-1]['txn_date']}"
 
     return metadata, transactions
+
+
+def _parse_city_union_bank(pdf, first_page_text):
+    transactions = []
+    metadata = {
+        "account_number": "",
+        "customer_id": "",
+        "account_type": "",
+        "statement_date": "",
+        "statement_period": "",
+        "holder_name": ""
+    }
+    date_regex = re.compile(r"^\d{2}-[A-Za-z]{3}-\d{4}$")
+
+    p1_text = first_page_text or ""
+    acc_match = re.search(r"Account No\s*:\s*(\d+)", p1_text)
+    if acc_match:
+        metadata["account_number"] = acc_match.group(1)
+    cust_match = re.search(r"Customer No\s*:\s*(\d+)", p1_text)
+    if cust_match:
+        metadata["customer_id"] = cust_match.group(1)
+    type_match = re.search(r"Account Type\s*:\s*([^\n]+)", p1_text)
+    if type_match:
+        metadata["account_type"] = type_match.group(1).strip()
+    period_match = re.search(r"Statement Dt\s*:\s*([^\n]+)", p1_text)
+    if period_match:
+        metadata["statement_period"] = period_match.group(1).strip()
+
+    lines_p1 = [l.strip() for l in p1_text.split("\n") if l.strip()]
+    for idx, line in enumerate(lines_p1):
+        if "Customer No" in line or "CKYC No" in line:
+            if idx + 1 < len(lines_p1):
+                metadata["holder_name"] = lines_p1[idx + 1]
+            break
+    if not metadata["holder_name"]:
+        metadata["holder_name"] = _extract_holder_name(p1_text, "City Union Bank Account Holder")
+
+    for page_idx, page in enumerate(pdf.pages):
+        words = page.extract_words()
+        if not words:
+            if page_idx == 0:
+                raise ValueError(
+                    f"No digital text found on Page {page_idx + 1}. This PDF appears to be a scanned image "
+                    "or photograph of a statement. Please upload a digitally generated PDF statement."
+                )
+            continue
+
+        lines_by_top = {}
+        for w in words:
+            top = round(w['top'], 1)
+            matched = False
+            for line_top in lines_by_top:
+                if abs(top - line_top) < 3.5:
+                    lines_by_top[line_top].append(w)
+                    matched = True
+                    break
+            if not matched:
+                lines_by_top[top] = [w]
+
+        sorted_tops = sorted(lines_by_top.keys())
+
+        header_y = 0.0
+        for top in sorted_tops:
+            l_words = sorted(lines_by_top[top], key=lambda x: x['x0'])
+            l_str = " ".join(w['text'] for w in l_words)
+            if "Date Particulars Chq No Debit Credit Balance" in l_str or ("Date" in l_str and "Particulars" in l_str and "Balance" in l_str):
+                header_y = top
+                break
+        if header_y == 0.0:
+            header_y = 60.0
+
+        page_lines = []
+        for top in sorted_tops:
+            if top <= header_y + 5.0 or top > 960.0:
+                continue
+            l_words = sorted(lines_by_top[top], key=lambda x: x['x0'])
+            l_str = " ".join(w['text'] for w in l_words)
+            if "Page " in l_str or "Regd. Office" in l_str:
+                continue
+            if "Opening Balance" in l_str or "END OF REPORT" in l_str or "Total Debits" in l_str or "Total Credits" in l_str or "Amt Brought Forward" in l_str:
+                continue
+            page_lines.append((top, l_words, l_str))
+
+        date_entries = []
+        for idx, (top, l_words, l_str) in enumerate(page_lines):
+            first_words = [w for w in l_words if w['x0'] < 110]
+            if first_words and date_regex.match(first_words[0]['text'].strip()):
+                date_entries.append((idx, top, first_words[0]['text'].strip()))
+
+        for i, (date_idx, date_top, txn_date) in enumerate(date_entries):
+            if i > 0:
+                prev_top = date_entries[i-1][1]
+                top_limit = (prev_top + date_top) / 2
+            else:
+                top_limit = date_top - 6.0
+
+            if i + 1 < len(date_entries):
+                next_top = date_entries[i+1][1]
+                bot_limit = (date_top + next_top) / 2
+            else:
+                bot_limit = date_top + 30.0
+
+            part_parts = []
+            chq_no = ""
+            debit = ""
+            credit = ""
+            balance = ""
+
+            for top, b_words, b_str in page_lines:
+                if top_limit <= top < bot_limit:
+                    for w in b_words:
+                        text = w['text'].strip()
+                        if not text:
+                            continue
+                        x0 = w['x0']
+                        if x0 < 110:
+                            if date_regex.match(text):
+                                continue
+                            part_parts.append(text)
+                        elif 105 <= x0 < 370:
+                            part_parts.append(text)
+                        elif 370 <= x0 < 450:
+                            chq_no = text
+                        elif 450 <= x0 < 560:
+                            debit = text
+                        elif 560 <= x0 < 700:
+                            credit = text
+                        elif x0 >= 700:
+                            balance = text
+
+            transactions.append({
+                "txn_date": txn_date,
+                "value_date": txn_date,
+                "particulars": " ".join(part_parts).strip(),
+                "ref_no": chq_no,
+                "debit": debit,
+                "credit": credit,
+                "balance": balance
+            })
+
+    return metadata, transactions
+
+
+def _parse_axis_format2(pdf, first_page_text):
+    transactions = []
+    metadata = {
+        "account_number": "",
+        "customer_id": "",
+        "account_type": "",
+        "statement_date": "",
+        "statement_period": "",
+        "holder_name": ""
+    }
+    date_regex = re.compile(r"^\d{2}-\d{2}-\d{4}$")
+
+    p1_text = first_page_text or ""
+    acc_match = re.search(r"Statement of Axis Account No:\s*(\d+)", p1_text)
+    if acc_match:
+        metadata["account_number"] = acc_match.group(1)
+    cust_match = re.search(r"Customer ID:\s*(\d+)", p1_text)
+    if cust_match:
+        metadata["customer_id"] = cust_match.group(1)
+    type_match = re.search(r"Scheme:\s*([^\n]+)", p1_text)
+    if type_match:
+        raw_type = type_match.group(1).strip()
+        metadata["account_type"] = re.split(r"CKYC|Nominee|PAN", raw_type)[0].strip()
+    period_match = re.search(r"for the period \([^)]*From:\s*([\d-]+)\s+To:\s*([\d-]+)\)", p1_text)
+    if period_match:
+        metadata["statement_period"] = f"{period_match.group(1)} to {period_match.group(2)}"
+
+    lines_p1 = [l.strip() for l in p1_text.split("\n") if l.strip()]
+    metadata["holder_name"] = lines_p1[0] if lines_p1 else "VIJAY BABU"
+
+    for page_idx, page in enumerate(pdf.pages):
+        words = page.extract_words()
+        if not words:
+            if page_idx == 0:
+                raise ValueError(
+                    f"No digital text found on Page {page_idx + 1}. This PDF appears to be a scanned image "
+                    "or photograph of a statement. Please upload a digitally generated PDF statement."
+                )
+            continue
+
+        lines_by_top = {}
+        for w in words:
+            top = round(w['top'], 1)
+            matched = False
+            for line_top in lines_by_top:
+                if abs(top - line_top) < 3.5:
+                    lines_by_top[line_top].append(w)
+                    matched = True
+                    break
+            if not matched:
+                lines_by_top[top] = [w]
+
+        sorted_tops = sorted(lines_by_top.keys())
+
+        header_y = 0.0
+        for top in sorted_tops:
+            l_str = " ".join(w['text'] for w in sorted(lines_by_top[top], key=lambda x: x['x0']))
+            if "Tran Date" in l_str and "Particulars" in l_str and "Balance" in l_str:
+                header_y = top
+                break
+        if header_y == 0.0:
+            header_y = 30.0
+
+        page_lines = []
+        for top in sorted_tops:
+            if top <= header_y + 12.0 or top > 760.0:
+                continue
+            l_words = sorted(lines_by_top[top], key=lambda x: x['x0'])
+            l_str = " ".join(w['text'] for w in l_words)
+            if "OPENING BALANCE" in l_str or "TRANSACTION TOTAL" in l_str or "CLOSING BALANCE" in l_str or "Statement of Axis" in l_str or "Charge breakup" in l_str:
+                continue
+            page_lines.append((top, l_words, l_str))
+
+        date_entries = []
+        for idx, (top, l_words, l_str) in enumerate(page_lines):
+            first_words = [w for w in l_words if w['x0'] < 90]
+            if first_words and date_regex.match(first_words[0]['text'].strip()):
+                date_entries.append((idx, top, first_words[0]['text'].strip()))
+
+        for i, (date_idx, date_top, txn_date) in enumerate(date_entries):
+            if i > 0:
+                prev_top = date_entries[i-1][1]
+                top_limit = (prev_top + date_top) / 2
+            else:
+                top_limit = date_top - 12.0
+
+            if i + 1 < len(date_entries):
+                next_top = date_entries[i+1][1]
+                bot_limit = (date_top + next_top) / 2
+            else:
+                bot_limit = date_top + 25.0
+
+            part_parts = []
+            chq_no = ""
+            debit = ""
+            credit = ""
+            balance = ""
+
+            for top, b_words, b_str in page_lines:
+                if top_limit <= top < bot_limit:
+                    for w in b_words:
+                        text = w['text'].strip()
+                        if not text:
+                            continue
+                        x0 = w['x0']
+                        if x0 < 90:
+                            if date_regex.match(text):
+                                continue
+                            part_parts.append(text)
+                        elif 90 <= x0 < 130:
+                            if text.isdigit():
+                                chq_no = text
+                            else:
+                                part_parts.append(text)
+                        elif 130 <= x0 < 330:
+                            part_parts.append(text)
+                        elif 330 <= x0 < 390:
+                            debit = text
+                        elif 390 <= x0 < 460:
+                            credit = text
+                        elif 460 <= x0 < 535:
+                            balance = text
+
+            transactions.append({
+                "txn_date": txn_date,
+                "value_date": txn_date,
+                "particulars": " ".join(part_parts).strip(),
+                "ref_no": chq_no,
+                "debit": debit,
+                "credit": credit,
+                "balance": balance
+            })
+
+    return metadata, transactions
+
