@@ -660,7 +660,7 @@ class TestAxisCorporateStatement4(unittest.TestCase):
         self.assertEqual(self.metadata.get("account_number"), "921020001896963")
         self.assertEqual(self.metadata.get("customer_id"), "903901942")
         self.assertEqual(self.metadata.get("account_type"), "CA - CURRENT A/C FOR ESCROW ARRANGEMENTS")
-        self.assertEqual(self.metadata.get("holder_name"), "VENKATA BEVERAGES PRIVATE LIMITED")
+        self.assertEqual(self.metadata.get("holder_name"), "VENKATA BEVERAGES PRIVATE LIMITED-ESCROW ACCOUNT")
 
     def test_transaction_count(self):
         self.assertEqual(len(self.transactions), 18)
