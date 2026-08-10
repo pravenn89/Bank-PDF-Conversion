@@ -58,6 +58,8 @@ with st.sidebar:
     - Karur Vysya Bank (KVB)
     - Indian Bank
     - Union Bank of India (UBI)
+    - City Union Bank (CUB)
+    - IDBI Bank
     - HDFC Bank
     - IndusInd Bank
     - ICICI Bank
