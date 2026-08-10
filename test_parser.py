@@ -791,6 +791,34 @@ class TestAxisBankFormat2(unittest.TestCase):
         self.assertEqual(last_tx["credit"], "2627.00")
         self.assertEqual(last_tx["balance"], "307652.72")
 
+class TestIDBIBankStatement(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\0cce1afd-fba4-4b3e-9fb3-efe493272c56\.user_uploaded\media_1786364063846.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "0194653800000134")
+        self.assertEqual(self.metadata.get("account_type"), "Current Account")
+        self.assertEqual(self.metadata.get("statement_period"), "01-04-2025 to 08-06-2026")
+        self.assertEqual(self.metadata.get("holder_name"), "HOLY ASTERIX APPARELS PRIVATE LIMITED")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 40)
+
+    def test_first_and_last_transactions(self):
+        first_tx = self.transactions[0]
+        self.assertEqual(first_tx["txn_date"], "01-04-2025")
+        self.assertEqual(first_tx["debit"], "19,081.08")
+        self.assertEqual(first_tx["balance"], "20,10,878.58Dr")
+
+        last_tx = self.transactions[-1]
+        self.assertEqual(last_tx["txn_date"], "06-06-2026")
+        self.assertEqual(last_tx["credit"], "18,000.00")
+        self.assertEqual(last_tx["balance"], "19,52,452.09Dr")
+
 if __name__ == '__main__':
     unittest.main()
+
 

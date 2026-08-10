@@ -58,6 +58,8 @@ def parse_pdf(pdf_path, password=None):
             return _parse_kotak(pdf, first_page_text)
         elif "statement between" in header_area or "caesc" in header_area:
             return _parse_axis(pdf, first_page_text)
+        elif "idbi" in header_area or "customer account ledger" in header_area:
+            return _parse_idbi_ledger(pdf, first_page_text)
         elif "idfc" in header_area or "idfb0" in header_area:
             return _parse_idfc(pdf, first_page_text)
         elif "south indian" in header_area or "sibl0" in header_area:
@@ -4506,4 +4508,138 @@ def _parse_axis_format2(pdf, first_page_text):
             })
 
     return metadata, transactions
+
+
+def _parse_idbi_ledger(pdf, first_page_text):
+    transactions = []
+    metadata = {
+        "account_number": "",
+        "customer_id": "",
+        "account_type": "",
+        "statement_date": "",
+        "statement_period": "",
+        "holder_name": ""
+    }
+    date_regex = re.compile(r"^\d{2}-\d{2}-\d{4}$")
+
+    full_text = ""
+    for page in pdf.pages:
+        full_text += (page.extract_text() or "") + "\n"
+
+    acc_match = re.search(r"Account No\s*:\s*(\d+)", full_text)
+    if acc_match:
+        metadata["account_number"] = acc_match.group(1)
+
+    cust_match = re.search(r"Customer ID\s*:\s*(\w+)", full_text, re.IGNORECASE)
+    if cust_match:
+        metadata["customer_id"] = cust_match.group(1)
+
+    type_match = re.search(r"Account No\s*:\s*\d+\s+INR\s+([^\n]+)", full_text)
+    if type_match:
+        metadata["holder_name"] = type_match.group(1).strip()
+        metadata["account_type"] = "Current Account"
+
+    period_match = re.search(r"Report from\s+([\d-]+ to [\d-]+)", full_text)
+    if not period_match:
+        period_match = re.search(r"Period\s*:\s*([\d-]+ to [\d-]+)", full_text)
+    if period_match:
+        metadata["statement_period"] = period_match.group(1).strip()
+
+    if not metadata["holder_name"]:
+        metadata["holder_name"] = _extract_holder_name(first_page_text or "", "IDBI Bank Account Holder")
+
+    for page_idx, page in enumerate(pdf.pages):
+        words = page.extract_words()
+        if not words:
+            if page_idx == 0:
+                raise ValueError(
+                    f"No digital text found on Page {page_idx + 1}. This PDF appears to be a scanned image "
+                    "or photograph of a statement. Please upload a digitally generated PDF statement."
+                )
+            continue
+
+        lines_by_top = {}
+        for w in words:
+            top = round(w['top'], 1)
+            matched = False
+            for line_top in lines_by_top:
+                if abs(top - line_top) < 3.5:
+                    lines_by_top[line_top].append(w)
+                    matched = True
+                    break
+            if not matched:
+                lines_by_top[top] = [w]
+
+        sorted_tops = sorted(lines_by_top.keys())
+
+        header_y = 0.0
+        for top in sorted_tops:
+            l_words = sorted(lines_by_top[top], key=lambda x: x['x0'])
+            l_str = " ".join(w['text'] for w in l_words)
+            if "GL. Date" in l_str or "Value Date" in l_str or "Tran Id" in l_str:
+                header_y = top
+                break
+        if header_y == 0.0:
+            header_y = 200.0
+
+        for top in sorted_tops:
+            if top <= header_y + 10.0 or top > 800.0:
+                continue
+
+            l_words = sorted(lines_by_top[top], key=lambda x: x['x0'])
+            l_str = " ".join(w['text'] for w in l_words)
+
+            if "Page Total" in l_str or "Closing Balance" in l_str or "Total Credit" in l_str or "Total Debit" in l_str or "Signature" in l_str or "End of Report" in l_str:
+                continue
+
+            first_words = [w for w in l_words if w['x0'] < 105]
+            if not first_words or not date_regex.match(first_words[0]['text'].strip()):
+                continue
+
+            txn_date = first_words[0]['text'].strip()
+            val_date = ""
+            ref_no = ""
+            part_parts = []
+            debit = ""
+            credit = ""
+            balance = ""
+
+            for w in l_words:
+                text = w['text'].strip()
+                if not text:
+                    continue
+                x0 = w['x0']
+
+                if x0 < 105:
+                    pass
+                elif 105 <= x0 < 170:
+                    if date_regex.match(text):
+                        val_date = text
+                    else:
+                        part_parts.append(text)
+                elif 170 <= x0 < 310:
+                    ref_no = (ref_no + " " + text).strip()
+                elif 310 <= x0 < 650:
+                    part_parts.append(text)
+                elif 650 <= x0 < 770:
+                    debit = text
+                elif 770 <= x0 < 890:
+                    credit = text
+                elif x0 >= 890:
+                    balance = text
+
+            particulars = " ".join(part_parts).strip()
+
+            transactions.append({
+                "txn_date": txn_date,
+                "value_date": val_date if val_date else txn_date,
+                "particulars": particulars,
+                "ref_no": ref_no,
+                "debit": debit,
+                "credit": credit,
+                "balance": balance
+            })
+
+    return metadata, transactions
+
 
