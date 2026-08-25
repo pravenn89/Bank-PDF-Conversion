@@ -203,9 +203,10 @@ def _parse_hdfc(pdf, first_page_text):
                 break
         
         if header_y is None:
-            header_y = 230.0
-            
-        table_words = [w for w in words if w['top'] > header_y + 10]
+            header_y = 216.0
+            table_words = [w for w in words if w['top'] >= 220.0]
+        else:
+            table_words = [w for w in words if w['top'] > header_y + 5.0]
         
         # Calibration separators
         x_date = 39.9
@@ -244,11 +245,12 @@ def _parse_hdfc(pdf, first_page_text):
         
         lines_dict = defaultdict(list)
         for w in table_words:
-            if w['top'] > page.height - 80:
+            if w['top'] >= page.height - 45:
                 continue
+            top = round(w['top'], 1)
             found_line = False
             for existing_top in lines_dict.keys():
-                if abs(w['top'] - existing_top) < 6.0:
+                if abs(top - existing_top) < 3.5:
                     lines_dict[existing_top].append(w)
                     found_line = True
                     break

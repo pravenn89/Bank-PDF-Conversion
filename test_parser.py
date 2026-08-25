@@ -833,7 +833,7 @@ class TestHDFCFormat2(unittest.TestCase):
         self.assertEqual(self.metadata.get("holder_name"), "M/S. MOTORHEADS")
 
     def test_transaction_count(self):
-        self.assertEqual(len(self.transactions), 242)
+        self.assertEqual(len(self.transactions), 256)
 
     def test_first_and_last_transactions(self):
         first_tx = self.transactions[0]
