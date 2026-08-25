@@ -154,7 +154,7 @@ def _parse_hdfc(pdf, first_page_text):
     date_regex = re.compile(r"^\d{2}/\d{2}/\d{2}$|^\d{2}/\d{2}/\d{4}$")
     
     for page_idx, page in enumerate(pdf.pages):
-        words = page.extract_words()
+        words = page.extract_words(x_tolerance=1.5)
         if not words:
             # We don't crash if Axis or other files are uploaded, but we let the user know
             raise ValueError(
@@ -165,18 +165,18 @@ def _parse_hdfc(pdf, first_page_text):
         text_full = page.extract_text() or "" if page_idx > 0 else first_page_text
         
         if page_idx == 0:
-            acc_match = re.search(r"Account No\s*:\s*(\w+)", text_full)
+            acc_match = re.search(r"Account\s*No\.?\s*:\s*(\w+)", text_full, re.IGNORECASE)
             if acc_match:
                 metadata["account_number"] = acc_match.group(1)
-            cust_match = re.search(r"Cust ID\s*:\s*(\w+)", text_full)
+            cust_match = re.search(r"Cust\s*ID\s*:\s*(\w+)", text_full, re.IGNORECASE)
             if cust_match:
                 metadata["customer_id"] = cust_match.group(1)
-            type_match = re.search(r"Account Type\s*:\s*([^\n]+)", text_full)
+            type_match = re.search(r"Account\s*Type\s*:\s*([^\n]+)", text_full, re.IGNORECASE)
             if type_match:
                 metadata["account_type"] = type_match.group(1).strip()
-            period_match = re.search(r"From\s*:\s*(\d{2}/\d{2}/\d{4})\s+To\s*:\s*(\d{2}/\d{2}/\d{4})", text_full)
+            period_match = re.search(r"(?:Statement\s*)?From\s*:\s*([\d/]+)\s+To\s*:\s*([\d/]+)", text_full, re.IGNORECASE)
             if period_match:
-                metadata["statement_period"] = f"{period_match.group(1)} to {period_match.group(2)}"
+                metadata["statement_period"] = f"{period_match.group(1).strip()} to {period_match.group(2).strip()}"
             metadata["holder_name"] = _extract_holder_name(text_full, "HDFC Account Holder")
 
         # Group lines
@@ -218,7 +218,7 @@ def _parse_hdfc(pdf, first_page_text):
         
         for w in header_line_words:
             txt = w['text'].lower()
-            if "date" in txt:
+            if txt == "date":
                 x_date = w['x0']
             elif "narration" in txt:
                 x_narr = w['x0']
@@ -293,6 +293,17 @@ def _parse_hdfc(pdf, first_page_text):
             col5 = clean_val(cols[5])
             col6 = clean_val(cols[6])
             
+            if col0:
+                first_token = col0.split()[0]
+                if date_regex.match(first_token):
+                    rest_tokens = " ".join(col0.split()[1:])
+                    col0 = first_token
+                    if rest_tokens:
+                        col1 = (rest_tokens + " " + col1).strip()
+                else:
+                    col1 = (col0 + " " + col1).strip()
+                    col0 = ""
+            
             if col0 and date_regex.match(col0):
                 if current_tx:
                     transactions.append(current_tx)
@@ -318,10 +329,8 @@ def _parse_hdfc(pdf, first_page_text):
                 )
                 if is_header_or_divider:
                     continue
-                if col0:
-                    current_tx["txn_date"] += " " + col0
                 if col1:
-                    current_tx["particulars"] += " " + col1
+                    current_tx["particulars"] += (" " if current_tx["particulars"] else "") + col1
                 if col2:
                     current_tx["ref_no"] = col2
                 if col3:
