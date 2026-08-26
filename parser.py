@@ -643,8 +643,142 @@ def _parse_icici_detailed_4(pdf, first_page_text):
             
     return metadata, transactions
 
+def _parse_icici_operative_current(pdf, first_page_text):
+    transactions = []
+    metadata = {
+        "account_number": "",
+        "customer_id": "",
+        "account_type": "Current",
+        "statement_date": "",
+        "statement_period": "",
+        "holder_name": ""
+    }
+    date_regex = re.compile(r"^\d{2}-\d{2}-\d{4}$|^\d{2}/\d{2}/\d{4}$")
+    
+    p1_text = first_page_text or ""
+    
+    acc_match = re.search(r"account\s*number:\s*(\w+)", p1_text, re.IGNORECASE)
+    if acc_match:
+        metadata["account_number"] = acc_match.group(1)
+        
+    cust_match = re.search(r"Cust\s*Id\s*:\s*(\w+)", p1_text, re.IGNORECASE)
+    if cust_match:
+        metadata["customer_id"] = cust_match.group(1)
+        
+    type_match = re.search(r"Operative\s*Accounts\s*in\s*INR\s*\n\s*(?:Type\s*of\s*Account[^\n]+\n\s*)?(\w+)", p1_text, re.IGNORECASE)
+    if type_match:
+        metadata["account_type"] = type_match.group(1).strip()
+        
+    period_match = re.search(r"period\s+([\d-]+)\s+To\s+([\d-]+)", p1_text, re.IGNORECASE)
+    if period_match:
+        metadata["statement_period"] = f"{period_match.group(1).strip()} to {period_match.group(2).strip()}"
+        
+    lines = [l.strip() for l in p1_text.split("\n") if l.strip()]
+    for line in lines:
+        if line.startswith("M/S.") or line.startswith("MR.") or line.startswith("MRS.") or line.startswith("MS."):
+            metadata["holder_name"] = line
+            break
+    if not metadata["holder_name"] and lines:
+        metadata["holder_name"] = lines[0]
+        
+    col_bounds = [60.0, 235.0, 280.0, 350.0, 415.0, 525.0]
+    
+    for page_idx, page in enumerate(pdf.pages):
+        words = page.extract_words(x_tolerance=1.5)
+        if not words:
+            continue
+            
+        lines_dict = defaultdict(list)
+        for w in words:
+            if w['top'] > 515.0:
+                continue
+            top = round(w['top'], 1)
+            matched = False
+            for line_top in lines_dict.keys():
+                if abs(top - line_top) < 3.5:
+                    lines_dict[line_top].append(w)
+                    matched = True
+                    break
+            if not matched:
+                lines_dict[top] = [w]
+                
+        sorted_tops = sorted(lines_dict.keys())
+        current_tx = None
+        
+        for top in sorted_tops:
+            line_words = sorted(lines_dict[top], key=lambda w: w['x0'])
+            line_text = " ".join([w['text'] for w in line_words])
+            line_clean = line_text.lower().replace(" ", "")
+            
+            if "pagetotal:" in line_clean or "legendsfor" in line_clean or "sincerely," in line_clean or "teamicicibank" in line_clean:
+                break
+                
+            if "statementof" in line_clean or "particulars" in line_clean or "balance(inr)" in line_clean or "operativeaccounts" in line_clean or "yourdetails" in line_clean or "pageof" in line_clean:
+                continue
+                
+            cols = [""] * 7
+            for w in line_words:
+                x_mid = (w['x0'] + w['x1']) / 2
+                if x_mid < col_bounds[0]:
+                    cols[0] += (" " if cols[0] else "") + w['text']
+                elif col_bounds[0] <= x_mid < col_bounds[1]:
+                    cols[1] += (" " if cols[1] else "") + w['text']
+                elif col_bounds[1] <= x_mid < col_bounds[2]:
+                    cols[2] += (" " if cols[2] else "") + w['text']
+                elif col_bounds[2] <= x_mid < col_bounds[3]:
+                    cols[3] += (" " if cols[3] else "") + w['text']
+                elif col_bounds[3] <= x_mid < col_bounds[4]:
+                    cols[4] += (" " if cols[4] else "") + w['text']
+                elif col_bounds[4] <= x_mid < col_bounds[5]:
+                    cols[5] += (" " if cols[5] else "") + w['text']
+                elif col_bounds[5] <= x_mid:
+                    cols[6] += (" " if cols[6] else "") + w['text']
+                    
+            col0 = clean_val(cols[0])
+            col1 = clean_val(cols[1])
+            col2 = clean_val(cols[2])
+            col3 = clean_val(cols[3])
+            col4 = clean_val(cols[4])
+            col5 = clean_val(cols[5])
+            col6 = clean_val(cols[6])
+            
+            if col1 == "B/F" or "b/f" in col1.lower():
+                continue
+                
+            if col0 and date_regex.match(col0):
+                if current_tx:
+                    transactions.append(current_tx)
+                current_tx = {
+                    "txn_date": col0,
+                    "particulars": col1,
+                    "ref_no": col2,
+                    "value_date": col0,
+                    "debit": col3,
+                    "credit": col4,
+                    "balance": col6
+                }
+            elif current_tx:
+                if col1:
+                    current_tx["particulars"] += (" " if current_tx["particulars"] else "") + col1
+                if col2:
+                    current_tx["ref_no"] = col2
+                if col3:
+                    current_tx["debit"] = col3
+                if col4:
+                    current_tx["credit"] = col4
+                if col6:
+                    current_tx["balance"] = col6
+                    
+        if current_tx:
+            transactions.append(current_tx)
+            current_tx = None
+            
+    return metadata, transactions
+
 def _parse_icici(pdf, first_page_text):
     text_lower = (first_page_text or "").lower()
+    if "statement of transactions in current account number" in text_lower or "operative accounts in inr" in text_lower:
+        return _parse_icici_operative_current(pdf, first_page_text)
     if "statement of transactions from" in text_lower or ("s.no" in text_lower and "available balance" in text_lower):
         return _parse_icici_account_statement(pdf, first_page_text)
     if re.search(r"detailed\s+statement", text_lower) or "txn posted date" in text_lower or "chequeno." in text_lower:
