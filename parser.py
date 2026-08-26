@@ -690,7 +690,7 @@ def _parse_icici_operative_current(pdf, first_page_text):
             
         lines_dict = defaultdict(list)
         for w in words:
-            if w['top'] > 515.0:
+            if w['top'] >= 685.0:
                 continue
             top = round(w['top'], 1)
             matched = False

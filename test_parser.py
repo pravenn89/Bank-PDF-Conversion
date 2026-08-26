@@ -861,7 +861,7 @@ class TestICICIFormat2(unittest.TestCase):
         self.assertEqual(self.metadata.get("holder_name"), "M/S.BUSINESS TABLOID")
 
     def test_transaction_count(self):
-        self.assertEqual(len(self.transactions), 519)
+        self.assertEqual(len(self.transactions), 688)
 
     def test_first_and_last_transactions(self):
         first_tx = self.transactions[0]
