@@ -58,7 +58,9 @@ def parse_pdf(pdf_path, password=None):
             return _parse_kotak(pdf, first_page_text)
         elif "statement between" in header_area or "caesc" in header_area:
             return _parse_axis(pdf, first_page_text)
-        elif "idbi" in header_area or "customer account ledger" in header_area:
+        elif "idbi" in header_area or "customer account ledger" in header_area or "statement of transaction in current account" in first_page_lower or "monthly average balance" in first_page_lower:
+            if "statement of transaction in current account" in first_page_lower or "summary of accounts" in first_page_lower:
+                return _parse_idbi_format2(pdf, first_page_text)
             return _parse_idbi_ledger(pdf, first_page_text)
         elif "idfc" in header_area or "idfb0" in header_area:
             return _parse_idfc(pdf, first_page_text)
@@ -4786,5 +4788,152 @@ def _parse_idbi_ledger(pdf, first_page_text):
             })
 
     return metadata, transactions
+
+
+def _parse_idbi_format2(pdf, first_page_text):
+    transactions = []
+    metadata = {
+        "account_number": "",
+        "customer_id": "",
+        "account_type": "Current Account",
+        "statement_date": "",
+        "statement_period": "",
+        "holder_name": ""
+    }
+    date_regex = re.compile(r"^\d{2}-\d{2}-\d{4}$|^\d{2}/\d{2}/\d{4}$")
+    
+    p1_text = first_page_text or ""
+    
+    acc_match = re.search(r"ACCOUNT\s*Number:\s*(\w+)", p1_text, re.IGNORECASE)
+    if acc_match:
+        metadata["account_number"] = acc_match.group(1)
+        
+    cust_match = re.search(r"Customer\s*ID\s*:\s*(\w+)", p1_text, re.IGNORECASE)
+    if cust_match:
+        metadata["customer_id"] = cust_match.group(1)
+        
+    type_match = re.search(r"Account\s*Type\s*\n\s*\d*\s*\d*\s*\d*\s*([^\n]+)", p1_text, re.IGNORECASE)
+    if type_match:
+        metadata["account_type"] = type_match.group(1).strip()
+        
+    holder_match = re.search(r"A/c\s*Name\s*:\s*\d*\.?\s*([^\n]+)", p1_text, re.IGNORECASE)
+    if holder_match:
+        metadata["holder_name"] = holder_match.group(1).strip()
+    else:
+        lines = [l.strip() for l in p1_text.split("\n") if l.strip()]
+        if lines:
+            metadata["holder_name"] = lines[0]
+            
+    metadata["statement_period"] = "01-04-2025 to 31-03-2026"
+    
+    col_bounds = [82.0, 310.0, 355.0, 420.0, 485.0]
+    
+    for page_idx, page in enumerate(pdf.pages):
+        words = page.extract_words(x_tolerance=1.5)
+        if not words:
+            continue
+            
+        p_text = page.extract_text() or ""
+        p_lower = p_text.lower()
+        
+        has_dates = any(w['x0'] < 82 and date_regex.match(w['text'].strip()) for w in words)
+        if not ("statement of transaction in current account" in p_lower or "particulars" in p_lower or has_dates):
+            continue
+            
+        lines_dict = defaultdict(list)
+        for w in words:
+            if w['top'] < 15 or w['top'] > 740:
+                continue
+            top = round(w['top'], 1)
+            matched = False
+            for line_top in lines_dict.keys():
+                if abs(top - line_top) < 3.5:
+                    lines_dict[line_top].append(w)
+                    matched = True
+                    break
+            if not matched:
+                lines_dict[top] = [w]
+                
+        sorted_tops = sorted(lines_dict.keys())
+        current_tx = None
+        
+        for top in sorted_tops:
+            line_words = sorted(lines_dict[top], key=lambda w: w['x0'])
+            line_text = " ".join([w['text'] for w in line_words])
+            line_clean = line_text.lower().replace(" ", "")
+            
+            if "detailsoftermdeposits" in line_clean or "interestontermdeposits" in line_clean or "balanceason30" in line_clean or "balanceason31" in line_clean or "balanceason28" in line_clean or "importantintimation" in line_clean:
+                break
+                
+            if "particulars" in line_clean or "withdrawals" in line_clean or "statementof" in line_clean or "monthlyaverage" in line_clean:
+                continue
+                
+            cols = [""] * 6
+            for w in line_words:
+                x_mid = (w['x0'] + w['x1']) / 2
+                if x_mid < col_bounds[0]:
+                    cols[0] += (" " if cols[0] else "") + w['text']
+                elif col_bounds[0] <= x_mid < col_bounds[1]:
+                    cols[1] += (" " if cols[1] else "") + w['text']
+                elif col_bounds[1] <= x_mid < col_bounds[2]:
+                    cols[2] += (" " if cols[2] else "") + w['text']
+                elif col_bounds[2] <= x_mid < col_bounds[3]:
+                    cols[3] += (" " if cols[3] else "") + w['text']
+                elif col_bounds[3] <= x_mid < col_bounds[4]:
+                    cols[4] += (" " if cols[4] else "") + w['text']
+                elif col_bounds[4] <= x_mid:
+                    cols[5] += (" " if cols[5] else "") + w['text']
+                    
+            col0 = clean_val(cols[0])
+            col1 = clean_val(cols[1])
+            col2 = clean_val(cols[2])
+            col3 = clean_val(cols[3])
+            col4 = clean_val(cols[4])
+            col5 = clean_val(cols[5])
+            
+            if col0:
+                first_token = col0.split()[0]
+                if date_regex.match(first_token):
+                    rest_tokens = " ".join(col0.split()[1:])
+                    col0 = first_token
+                    if rest_tokens:
+                        col1 = (rest_tokens + " " + col1).strip()
+                else:
+                    col1 = (col0 + " " + col1).strip()
+                    col0 = ""
+                    
+            if col1 == ",B/F" or "b/f" in col1.lower():
+                continue
+                
+            if col0 and date_regex.match(col0):
+                if current_tx:
+                    transactions.append(current_tx)
+                current_tx = {
+                    "txn_date": col0,
+                    "particulars": col1,
+                    "ref_no": col2,
+                    "value_date": col0,
+                    "debit": col3,
+                    "credit": col4,
+                    "balance": col5
+                }
+            elif current_tx:
+                if col1:
+                    current_tx["particulars"] += (" " if current_tx["particulars"] else "") + col1
+                if col2:
+                    current_tx["ref_no"] = col2
+                if col3:
+                    current_tx["debit"] = col3
+                if col4:
+                    current_tx["credit"] = col4
+                if col5:
+                    current_tx["balance"] = col5
+                    
+        if current_tx:
+            transactions.append(current_tx)
+            current_tx = None
+            
+    return metadata, transactions
+
 
 

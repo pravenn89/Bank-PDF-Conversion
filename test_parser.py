@@ -874,8 +874,37 @@ class TestICICIFormat2(unittest.TestCase):
         self.assertEqual(last_tx["debit"], "155.00")
         self.assertEqual(last_tx["balance"], "0.94 Cr")
 
+class TestIDBIBankStatementFormat2(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\0cce1afd-fba4-4b3e-9fb3-efe493272c56\.user_uploaded\media_1787808147380.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "0370102000011608")
+        self.assertEqual(self.metadata.get("customer_id"), "91165317")
+        self.assertEqual(self.metadata.get("account_type"), "Current Account")
+        self.assertEqual(self.metadata.get("statement_period"), "01-04-2025 to 31-03-2026")
+        self.assertEqual(self.metadata.get("holder_name"), "REKINDLE AUTOMATIONS PVT LTD")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 136)
+
+    def test_first_and_last_transactions(self):
+        first_tx = self.transactions[0]
+        self.assertEqual(first_tx["txn_date"], "02-04-2025")
+        self.assertEqual(first_tx["debit"], "35,000.00")
+        self.assertEqual(first_tx["balance"], "33,680.00 Dr")
+
+        last_tx = self.transactions[-1]
+        self.assertEqual(last_tx["txn_date"], "05-03-2026")
+        self.assertEqual(last_tx["debit"], "25,000.00")
+        self.assertEqual(last_tx["balance"], "33,998.76 Cr")
+
 if __name__ == '__main__':
     unittest.main()
+
 
 
 
