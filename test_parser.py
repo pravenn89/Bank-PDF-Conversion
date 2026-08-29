@@ -902,8 +902,37 @@ class TestIDBIBankStatementFormat2(unittest.TestCase):
         self.assertEqual(last_tx["debit"], "25,000.00")
         self.assertEqual(last_tx["balance"], "33,998.76 Cr")
 
+class TestIndianBankFormat2(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\0cce1afd-fba4-4b3e-9fb3-efe493272c56\.user_uploaded\media_1787997816007.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "811569838")
+        self.assertEqual(self.metadata.get("customer_id"), "01615")
+        self.assertEqual(self.metadata.get("account_type"), "SBCHQ-IB SAMMAN-SR CITIZEN-INR")
+        self.assertEqual(self.metadata.get("statement_period"), "01-Apr-2025 to 31-Mar-2026")
+        self.assertEqual(self.metadata.get("holder_name"), "Sp Ramanathan")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 232)
+
+    def test_first_and_last_transactions(self):
+        first_tx = self.transactions[0]
+        self.assertEqual(first_tx["txn_date"], "03/04/25")
+        self.assertEqual(first_tx["debit"], "118.00")
+        self.assertEqual(first_tx["balance"], "6206.54Cr")
+
+        last_tx = self.transactions[-1]
+        self.assertEqual(last_tx["txn_date"], "31/03/26")
+        self.assertEqual(last_tx["credit"], "2052.00")
+        self.assertEqual(last_tx["balance"], "438431.54Cr")
+
 if __name__ == '__main__':
     unittest.main()
+
 
 
 

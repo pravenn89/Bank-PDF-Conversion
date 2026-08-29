@@ -1584,8 +1584,11 @@ def _parse_union_bank(pdf, first_page_text):
     return metadata, transactions
 
 def _parse_indian_bank(pdf, first_page_text):
-    if "ca-ind" in first_page_text.lower() or "lordan" in first_page_text.lower() or "post date value" in first_page_text.lower():
+    text_lower = (first_page_text or "").lower()
+    if "ca-ind" in text_lower or "lordan" in text_lower:
         return _parse_indian_bank_current(pdf, first_page_text)
+    elif "post date" in text_lower and "value date" in text_lower and "details" in text_lower:
+        return _parse_indian_bank_format2(pdf, first_page_text)
         
     transactions = []
     metadata = {
@@ -1901,6 +1904,166 @@ def _parse_indian_bank_current(pdf, first_page_text):
                 "debit": clean_val(tx["debit"]),
                 "credit": clean_val(tx["credit"]),
                 "balance": bal
+            })
+            
+    return metadata, transactions
+
+
+def _parse_indian_bank_format2(pdf, first_page_text):
+    transactions = []
+    metadata = {
+        "account_number": "",
+        "customer_id": "",
+        "account_type": "Savings",
+        "statement_date": "",
+        "statement_period": "",
+        "holder_name": ""
+    }
+    date_regex = re.compile(r"^\d{2}/\d{2}/\d{2}$|^\d{2}/\d{2}/\d{4}$|^\d{2}-\d{2}-\d{4}$")
+    
+    p1_text = first_page_text or ""
+    
+    acc_match = re.search(r"Account No\s*:\s*(\w+)", p1_text, re.IGNORECASE)
+    if acc_match:
+        metadata["account_number"] = acc_match.group(1)
+        
+    cust_match = re.search(r"Branch Code\s*:\s*(\w+)", p1_text, re.IGNORECASE)
+    if cust_match:
+        metadata["customer_id"] = cust_match.group(1)
+        
+    type_match = re.search(r"Product:\s*([^\n]+)", p1_text, re.IGNORECASE)
+    if type_match:
+        raw_prod = type_match.group(1).strip()
+        metadata["account_type"] = re.split(r"Email\s*ID|IFSC", raw_prod, flags=re.IGNORECASE)[0].strip()
+        
+    from_m = re.search(r"Statement\s*From\s*:\s*([\w-]+)", p1_text, re.IGNORECASE)
+    to_m = re.search(r"To\s*:\s*([\w-]+)", p1_text, re.IGNORECASE)
+    if from_m and to_m:
+        metadata["statement_period"] = f"{from_m.group(1)} to {to_m.group(1)}"
+        
+    lines = [l.strip() for l in p1_text.split("\n") if l.strip()]
+    for i, line in enumerate(lines):
+        if "STATEMENT OF ACCOUNT" in line and i + 1 < len(lines):
+            cand = lines[i+1]
+            if "INDIAN BANK" in cand and i + 2 < len(lines):
+                cand = lines[i+2]
+            metadata["holder_name"] = cand
+            break
+            
+    col_bounds = [62.0, 120.0, 325.0, 380.0, 445.0, 515.0]
+    
+    for page_idx, page in enumerate(pdf.pages):
+        words = page.extract_words(x_tolerance=1.5)
+        if not words:
+            continue
+            
+        lines_dict = defaultdict(list)
+        for w in words:
+            top = round(w['top'], 1)
+            matched = False
+            for line_top in lines_dict.keys():
+                if abs(top - line_top) < 3.5:
+                    lines_dict[line_top].append(w)
+                    matched = True
+                    break
+            if not matched:
+                lines_dict[top] = [w]
+                
+        sorted_tops = sorted(lines_dict.keys())
+        
+        header_y = None
+        for top in sorted_tops:
+            l_words = sorted(lines_dict[top], key=lambda w: w['x0'])
+            l_str = " ".join(w['text'].lower() for w in l_words)
+            if "post date" in l_str or "brought forward" in l_str:
+                header_y = top
+                
+        if header_y is None:
+            header_y = 100.0
+            
+        table_lines = []
+        for top in sorted_tops:
+            if top <= header_y:
+                continue
+            l_words = sorted(lines_dict[top], key=lambda w: w['x0'])
+            l_str = " ".join(w['text'] for w in l_words)
+            line_clean = l_str.lower().replace(" ", "")
+            if "carriedforward" in line_clean or "statementsummary" in line_clean or "incaseyouraccount" in line_clean or "endofstatement" in line_clean or "closingbalance:" in line_clean:
+                break
+            if "broughtforward" in line_clean or "postdate" in line_clean or "valuedate" in line_clean:
+                continue
+                
+            cols = [""] * 7
+            for w in l_words:
+                x_mid = (w['x0'] + w['x1']) / 2
+                if x_mid < col_bounds[0]:
+                    cols[0] += (" " if cols[0] else "") + w['text']
+                elif col_bounds[0] <= x_mid < col_bounds[1]:
+                    cols[1] += (" " if cols[1] else "") + w['text']
+                elif col_bounds[1] <= x_mid < col_bounds[2]:
+                    cols[2] += (" " if cols[2] else "") + w['text']
+                elif col_bounds[2] <= x_mid < col_bounds[3]:
+                    cols[3] += (" " if cols[3] else "") + w['text']
+                elif col_bounds[3] <= x_mid < col_bounds[4]:
+                    cols[4] += (" " if cols[4] else "") + w['text']
+                elif col_bounds[4] <= x_mid < col_bounds[5]:
+                    cols[5] += (" " if cols[5] else "") + w['text']
+                elif col_bounds[5] <= x_mid:
+                    cols[6] += (" " if cols[6] else "") + w['text']
+                    
+            table_lines.append({
+                "top": top,
+                "col0": clean_val(cols[0]),
+                "col1": clean_val(cols[1]),
+                "col2": clean_val(cols[2]),
+                "col3": clean_val(cols[3]),
+                "col4": clean_val(cols[4]),
+                "col5": clean_val(cols[5]),
+                "col6": clean_val(cols[6])
+            })
+            
+        date_entries = []
+        for idx, tl in enumerate(table_lines):
+            if tl["col0"] and date_regex.match(tl["col0"]):
+                date_entries.append((idx, tl["top"]))
+                
+        for i, (d_idx, d_top) in enumerate(date_entries):
+            d_line = table_lines[d_idx]
+            prev_top = 0.0 if i == 0 else (date_entries[i-1][1] + d_top) / 2
+            next_top = 9999.0 if i == len(date_entries) - 1 else (d_top + date_entries[i+1][1]) / 2
+            
+            part_list = []
+            ref_no = d_line["col3"]
+            debit = d_line["col4"]
+            credit = d_line["col5"]
+            balance = d_line["col6"]
+            
+            for tl in table_lines:
+                if prev_top < tl["top"] <= next_top:
+                    if tl["col2"]:
+                        part_list.append(tl["col2"])
+                    if not ref_no and tl["col3"]:
+                        ref_no = tl["col3"]
+                    if not debit and tl["col4"]:
+                        debit = tl["col4"]
+                    if not credit and tl["col5"]:
+                        credit = tl["col5"]
+                    if not balance and tl["col6"]:
+                        balance = tl["col6"]
+                        
+            # Handle non-financial balance inquiry lines (0.00 charge)
+            if "BALENQ" in " ".join(part_list) and not debit and not credit and balance == "0.00":
+                debit = "0.00"
+                balance = ""
+                
+            transactions.append({
+                "txn_date": d_line["col0"],
+                "value_date": d_line["col1"] if d_line["col1"] else d_line["col0"],
+                "particulars": " ".join(part_list).strip(),
+                "ref_no": ref_no,
+                "debit": debit,
+                "credit": credit,
+                "balance": balance
             })
             
     return metadata, transactions
