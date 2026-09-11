@@ -930,8 +930,65 @@ class TestIndianBankFormat2(unittest.TestCase):
         self.assertEqual(last_tx["credit"], "2052.00")
         self.assertEqual(last_tx["balance"], "438431.54Cr")
 
+class TestAxisChannelFinance1(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\0cce1afd-fba4-4b3e-9fb3-efe493272c56\.user_uploaded\media_1789102106776.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "922030058954986")
+        self.assertEqual(self.metadata.get("customer_id"), "945047162")
+        self.assertEqual(self.metadata.get("account_type"), "CHANNEL FINANCE-DEALER")
+        self.assertEqual(self.metadata.get("statement_period"), "01-04-2024 to 31-03-2025")
+        self.assertEqual(self.metadata.get("holder_name"), "AIROWIRE NETWORKS PRIVATE LIMITED")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 13)
+
+    def test_first_and_last_transactions(self):
+        first_tx = self.transactions[0]
+        self.assertEqual(first_tx["txn_date"], "12-04-2024")
+        self.assertEqual(first_tx["credit"], "10699.00")
+        self.assertEqual(first_tx["balance"], "-3379248.10")
+
+        last_tx = self.transactions[-1]
+        self.assertEqual(last_tx["txn_date"], "12-08-2024")
+        self.assertEqual(last_tx["credit"], "15.90")
+        self.assertEqual(last_tx["balance"], "1.00")
+
+class TestAxisChannelFinance2(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pdf_path = r"C:\Users\rtrpr\.gemini\antigravity\brain\0cce1afd-fba4-4b3e-9fb3-efe493272c56\.user_uploaded\media_1789102106777.pdf"
+        cls.metadata, cls.transactions = parse_pdf(cls.pdf_path)
+
+    def test_metadata_extraction(self):
+        self.assertIsNotNone(self.metadata)
+        self.assertEqual(self.metadata.get("account_number"), "922030058954973")
+        self.assertEqual(self.metadata.get("customer_id"), "945047162")
+        self.assertEqual(self.metadata.get("account_type"), "CHANNEL FINANCE-DEALER")
+        self.assertEqual(self.metadata.get("statement_period"), "01-04-2024 to 31-03-2025")
+        self.assertEqual(self.metadata.get("holder_name"), "AIROWIRE NETWORKS PRIVATE LIMITED")
+
+    def test_transaction_count(self):
+        self.assertEqual(len(self.transactions), 116)
+
+    def test_first_and_last_transactions(self):
+        first_tx = self.transactions[0]
+        self.assertEqual(first_tx["txn_date"], "12-04-2024")
+        self.assertEqual(first_tx["credit"], "25250.00")
+        self.assertEqual(first_tx["balance"], "-19999998.24")
+
+        last_tx = self.transactions[-1]
+        self.assertEqual(last_tx["txn_date"], "31-03-2025")
+        self.assertEqual(last_tx["debit"], "135285.00")
+        self.assertEqual(last_tx["balance"], "-7461618.82")
+
 if __name__ == '__main__':
     unittest.main()
+
 
 
 
